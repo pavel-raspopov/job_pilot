@@ -18,4 +18,10 @@ After building any component — update this file with the component name, file 
 
 ## Components
 
-_Empty. Components will be added here as they are built._
+- **Navbar**: `components/layout/Navbar.tsx` — 3-column grid header, logo image, centered nav links, dark `Start for Free` CTA
+- **Footer**: `components/layout/Footer.tsx` — logo left, Dashboard / Privacy Policy / Terms links right
+- **CTAButtons**: `components/homepage/CTAButtons.tsx` — dark `Get Started` + outlined `Find Your First Match`
+- **Hero**: `components/homepage/Hero.tsx` — centered headline, gradient orbs, dashboard screenshot below
+- **Features**: `components/homepage/Features.tsx` — two alternating sections with feature lists + images
+- **Testimonial**: `components/homepage/Testimonial.tsx` — Playfair Display quote, Tom Wilson attribution
+- **BottomCTA**: `components/homepage/BottomCTA.tsx` — gradient banner with headline + CTAButtons
