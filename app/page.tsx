@@ -2,8 +2,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { Hero } from "@/components/homepage/Hero";
 import { Features } from "@/components/homepage/Features";
-import { Testimonial } from "@/components/homepage/Testimonial";
-import { BottomCTA } from "@/components/homepage/BottomCTA";
+import { HowItWorks } from "@/components/homepage/HowItWorks";
 
 const Home = () => {
   return (
@@ -12,8 +11,7 @@ const Home = () => {
       <main className="flex-grow">
         <Hero />
         <Features />
-        <Testimonial />
-        <BottomCTA />
+        <HowItWorks />
       </main>
       <Footer />
     </div>

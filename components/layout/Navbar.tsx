@@ -20,7 +20,7 @@ export function Navbar() {
           <Image
             src="/logo.png"
             alt="JobPilot"
-            width={130}
+            width={106}
             height={36}
             priority
             className="h-9 w-auto"
@@ -49,7 +49,7 @@ export function Navbar() {
         <div className="flex justify-end">
           <Link
             href="/login"
-            className="bg-overlay-dark text-surface hover:opacity-90 transition-opacity px-4 py-2 rounded-lg text-sm font-medium"
+            className="bg-overlay-dark text-surface hover:opacity-90 transition-opacity px-4 py-2 rounded-md text-sm font-medium"
           >
             Start for Free
           </Link>

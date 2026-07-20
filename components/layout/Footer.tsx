@@ -9,7 +9,7 @@ export function Footer() {
           <Image
             src="/logo.png"
             alt="JobPilot"
-            width={130}
+            width={106}
             height={36}
             className="h-9 w-auto"
           />
