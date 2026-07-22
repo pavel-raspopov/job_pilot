@@ -6,6 +6,19 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 <!-- END:nextjs-agent-rules -->
 
+## Context Efficiency & Sub-Agent Execution
+
+1. Targeted Context Loading:
+   - Do not read documentation files (context/*) "just in case".
+   - Read UI or architecture rule files ONLY if the current subtask explicitly requires it.
+
+2. Concise Reporting:
+   - When returning results to the main agent, provide a brief summary (3–5 bullet points): what was done, which files were modified, and the verification status.
+   - Do not recap your entire thought process or step-by-step reasoning.
+
+3. Ban on Exhaustive Searches:
+   - If you cannot find a required file within 2–3 search attempts, stop and ask the main agent or user instead of scanning the entire repository.
+
 ## Read Before Anything Else
 
 Read in this exact order before any implementation:
