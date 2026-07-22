@@ -1,17 +1,13 @@
-"use client";
-
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { createInsforgeServer } from "@/lib/insforge-server";
+import { NavbarNav } from "@/components/layout/NavbarNav";
+import { signOutAction } from "@/actions/auth";
 
-export function Navbar() {
-  const pathname = usePathname();
-
-  const navItems = [
-    { label: "Dashboard", href: "/dashboard" },
-    { label: "Find Jobs", href: "/find-jobs" },
-    { label: "Profile", href: "/profile" },
-  ];
+export async function Navbar() {
+  const insforge = await createInsforgeServer();
+  const { data } = await insforge.auth.getCurrentUser();
+  const isAuthed = Boolean(data?.user);
 
   return (
     <header className="sticky top-0 z-50 w-full h-16 bg-surface border-b border-border">
@@ -27,32 +23,26 @@ export function Navbar() {
           />
         </Link>
 
-        <nav className="hidden md:flex items-center gap-8">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`text-sm font-medium transition-colors ${
-                  isActive
-                    ? "text-accent"
-                    : "text-text-dark hover:text-accent"
-                }`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <NavbarNav />
 
         <div className="flex justify-end">
-          <Link
-            href="/login"
-            className="bg-overlay-dark text-surface hover:opacity-90 transition-opacity px-4 py-2 rounded-md text-sm font-medium"
-          >
-            Start for Free
-          </Link>
+          {isAuthed ? (
+            <form action={signOutAction}>
+              <button
+                type="submit"
+                className="bg-overlay-dark text-surface hover:opacity-90 transition-opacity px-4 py-2 rounded-md text-sm font-medium"
+              >
+                Log out
+              </button>
+            </form>
+          ) : (
+            <Link
+              href="/login"
+              className="bg-overlay-dark text-surface hover:opacity-90 transition-opacity px-4 py-2 rounded-md text-sm font-medium"
+            >
+              Start for Free
+            </Link>
+          )}
         </div>
       </div>
     </header>

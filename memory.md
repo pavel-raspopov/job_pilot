@@ -1,41 +1,51 @@
-# Memory — Homepage Review & Fixes
+# Memory — Feature 02 Auth Implementation
 
-Last updated: 7/20/2026, 7:15 PM
+Last updated: 7/23/2026, 12:15 AM
 
 ## What was built
 
-- **`components/homepage/HowItWorks.tsx`**: New component created by merging the previously separate `Testimonial.tsx` and `BottomCTA.tsx`. Contains the testimonial quote section and the gradient bottom CTA banner as two sections in one exported component, matching architecture.md's planned `HowItWorks.tsx` naming. `Testimonial.tsx` and `BottomCTA.tsx` were deleted.
-- **`app/page.tsx`**: Updated to import and render `HowItWorks` instead of `Testimonial` + `BottomCTA`.
-- **`components/homepage/CTAButtons.tsx`**: Button classes fixed from `rounded-lg` / `px-6 py-2.5` to `rounded-md` / `px-4 py-2` to match ui-tokens.md / ui-rules.md button spec exactly.
-- **`components/layout/Navbar.tsx`**: "Start for Free" button radius fixed from `rounded-lg` to `rounded-md`. Logo `Image` width/height props corrected from `130x36` to `106x36` to match the actual logo.png intrinsic aspect ratio (496x168 ≈ 2.95:1), resolving a Next.js console warning.
-- **`components/layout/Footer.tsx`**: Same logo width/height fix as Navbar (`106x36`).
-- **`components/homepage/HowItWorks.tsx` quote styling**: Removed `Playfair_Display` font import (violated the "Inter only" font invariant) and removed heavy `font-semibold italic` styling that looked awkward in Inter — settled on `font-medium` (no italic) for a cleaner look.
+- **`lib/insforge-client.ts` / `lib/insforge-server.ts`**: Browser + server (read-only) InsForge clients via `@insforge/sdk/ssr` (`createBrowserClient`, `createServerClient`). Server client documented as read-only — cookie writes go through `createAuthActions`.
+- **`proxy.ts`** (Next.js 16 renamed `middleware` → `proxy`): Session updater using `updateSession` from `@insforge/sdk/ssr`, guards `/dashboard`, `/profile`, `/find-jobs`, redirects unauthenticated users to `/login`.
+- **`app/(auth)/callback/route.ts`**: OAuth code exchange as a Route Handler using `createAuthActions.exchangeOAuthCode` (must be a Route Handler / Server Action because it writes cookies).
+- **`app/(auth)/login/page.tsx`**: Client login page with Google + GitHub OAuth. Uses `<Suspense>` around the `useSearchParams()`-consuming card. Calls the server action `signInWithOAuthAction(provider)` — redirect URL is now pinned server-side, not passed from the client.
+- **`actions/auth.ts`**: Server Actions `signInWithOAuthAction` (resolves origin from `NEXT_PUBLIC_APP_URL` or `headers()`, calls `createAuthActions.signInWithOAuth` with `skipBrowserRedirect: true`, returns the OAuth URL to the client) and `signOutAction` (calls `createAuthActions.signOut`, then `revalidatePath('/', 'layout')`, then `redirect('/login')`).
+- **`app/(app)/layout.tsx`** + **`app/(app)/dashboard/page.tsx`**: Route-group shared authed layout renders `<Navbar />` + `<main>` + `<Footer />`. Dashboard uses `shadow-card` token.
+- **`app/globals.css`**: Added `--shadow-card` elevation token in `@theme`, generating a `shadow-card` utility (replaces the duplicated inline `shadow-[...]` arbitrary values).
+- **`components/layout/Navbar.tsx`**: Server component that reads user via `createInsforgeServer()`. Logout is a `<form action={signOutAction}>` so the router cache is invalidated.
+- **`components/homepage/CTAButtons.tsx`**: Async server component routing logged-in users to `/dashboard`.
 
 ## Decisions made
 
-- **Architecture alignment over ad-hoc file creation**: When a `/review` surfaced that `Testimonial.tsx` + `BottomCTA.tsx` weren't in architecture.md's planned component list (which only specifies `Hero.tsx`, `HowItWorks.tsx`, `Features.tsx`), the decision was to conform the code to the plan rather than update the plan — merged into one `HowItWorks.tsx` file since neither section is reused elsewhere.
-- **Button tokens are non-negotiable** — `rounded-md` + `px-4 py-2` is the fixed standard for all buttons project-wide; documented explicitly in `ui-registry.md` under a new "Button Standard" section to prevent future drift.
-- **Single font family enforced** — only Inter is permitted anywhere in the UI; documented in `ui-registry.md` under "Font Standard". Emphasis in text is achieved via weight/italic utility classes, never a second typeface.
-- **CTA auth-aware routing intentionally deferred** — Get Started / Start for Free currently route unconditionally to `/login`. Per build-plan.md this should be conditional on auth state (`/dashboard` if logged in), but that logic is deferred until Feature 02 Auth exists. Documented in progress-tracker.md so it isn't forgotten.
+- **Route group `(app)` for authed layout.** Chose a route group over per-page duplication because Navbar/Footer are identical across dashboard, profile, find-jobs, and job details.
+- **`signOutAction` Server Action instead of Route Handler.** Server Actions can call `revalidatePath('/', 'layout')` to blow the router cache. A POST route can't invalidate it, which caused stale sessions after logout.
+- **OAuth `redirectTo` is server-pinned.** The client no longer passes the redirect URL; the server derives it from `NEXT_PUBLIC_APP_URL` (if set) or `headers()`. Prevents an open-redirect-style tampering vector.
+- **`createServerClient` is read-only.** All cookie-writing auth uses `createAuthActions` inline in a Server Action or Route Handler. Documented in `lib/insforge-server.ts` JSDoc and `context/architecture.md`.
+- **Shadow token in Tailwind v4 `@theme`.** Elevation lives in one place (`--shadow-card`) — components use `shadow-card`, never inline `shadow-[...]`.
+- **UI patterns imprinted to `context/ui-registry.md`.** Reusable patterns extracted from this feature: **Card (surface)** = `bg-surface border border-border rounded-2xl p-6 shadow-card`; **OAuth Button primary (dark)** = `bg-overlay-dark text-surface hover:opacity-90`; **OAuth Button secondary (light)** = `border border-border bg-surface hover:bg-surface-secondary`; **Alert / Notice** = neutral `bg-surface-secondary` (no error token yet); **Focus State Standard** = `focus:ring-1 focus:ring-accent`. Registry previously drifted from actual code (listed `p-8`, `hover:bg-overlay-dark`) — corrected during imprint to match the shipped classes.
 
 ## Problems solved
 
-- **Next.js Image aspect-ratio console warning**: Root cause was NOT the CSS override (as initially assumed) — it was that the `width={130} height={36}` props didn't match logo.png's actual intrinsic aspect ratio (496x168 ≈ 2.95:1, not 3.61:1). Fixed by reading the PNG header bytes directly (`node -e "fs.readFileSync..."`) to get true dimensions, then correcting width to `106` to preserve the real ratio at `height=36`.
-- **Turbopack fatal panic / stray `nul` file**: An earlier command used `2>nul` (Windows cmd syntax) inside a Git Bash/MinGW shell, which created a literal 0-byte file named `nul` in the project root instead of redirecting to the null device. This broke Turbopack's file system reads (`nul` is a reserved Windows device name) causing a fatal panic and 500 errors on every route. Fixed by deleting the stray file (`rm -f nul`) and restarting the dev server with `.next` cache cleared.
-- **Stale `.next` type-check cache**: `npm run build` initially failed on a phantom `app/login/page.js` type error even after removing the empty `app/login` folder — resolved by deleting the `.next` directory entirely before rebuilding.
+- **OAuth callback previously swallowed cookie writes** — moved from Server Component to Route Handler.
+- **Logout left stale session in router cache** — fixed with `revalidatePath('/', 'layout')` in `signOutAction`.
+- **Next 15/16 `useSearchParams()` warning** — fixed with `<Suspense>` boundary around the login card.
+- **Duplicated arbitrary shadow classes** — consolidated into `shadow-card` token.
+- **Layout inconsistency between marketing and authed pages** — unified via `app/(app)/layout.tsx`.
 
 ## Current state
 
-- Homepage (Phase 1 — Feature 01) fully rebuilt to match architecture.md's component plan, ui-tokens.md button/font specs, and verified visually in-browser against the running dev server (design comparison against `context/designs/landing-page.png` done by the user directly, confirmed "looking fine").
-- `npm run build` and `npm run lint` both pass cleanly.
-- `context/progress-tracker.md` has a "Decisions Made During Build" section documenting all fixes from this session.
-- `context/ui-registry.md` has the updated component list (HowItWorks replacing Testimonial/BottomCTA) plus new "Button Standard" and "Font Standard" sections.
-- **Pending, deliberately deferred by user**: rename `components/homepage/CTAButtons.tsx` → `CTAButton.tsx` (singular, since it's one reusable component, not a "buttons" collection) and update all references (`Hero.tsx`, `HowItWorks.tsx` currently import it). User explicitly said to forget this for now — it is NOT done.
+- Phase 1 — Feature 02 Auth **fully completed** through two rounds of review + fixes.
+- `npx tsc --noEmit` passes clean. `npm run lint` clean for app code (pre-existing warnings in `.agents/skills/` only, out of scope).
+- Sign-in via Google and GitHub OAuth verified end-to-end in dev server; sign-out clears session and router cache.
+- `context/ui-registry.md` reflects real shipped patterns (Card / OAuth buttons / Alert / Focus / Card + Focus standards) — future components should match without re-reading source.
 
 ## Next session starts with
 
-- Proceed to **Phase 1 — Feature 02 Auth** (InsForge Google + GitHub OAuth, callback handler, session middleware protecting `/dashboard`, `/profile`, `/find-jobs`, `/find-jobs/[id]`), and revisit the deferred CTA auth-aware routing logic at that time.
+- Proceed to **Phase 1 — Feature 03 PostHog Initialization** per `context/build-plan.md`.
 
-## Open questions
+## Open points / deferred tech debt
 
-- None.
+Deferred from Feature 02 round-2 review (user instruction: fix 1–7, defer 8–10).
+
+- **[#8] OAuth callback error observability.** `app/(auth)/callback/route.ts` currently redirects to `/login?error=…` on any failure but doesn't emit a correlation ID or log the underlying error. When a user reports a failed sign-in there is no trail. **Action for later:** attach a per-request `x-request-id`, log the error server-side with that ID, surface the ID in the query string, and echo it on the login page so it can be pasted into a bug report.
+- **[#9] Env var validation.** Every server file uses `process.env.NEXT_PUBLIC_INSFORGE_URL!` / `..._ANON_KEY!` non-null assertions. A missing env crashes deep in InsForge SDK internals with a cryptic error. **Action for later:** create `lib/env.ts` with a zod-validated schema loaded once at boot; import typed constants everywhere; drop the `!` assertions.
+- **[#10] Dashboard `Profile` link 404s.** Dashboard renders a nav link to `/profile` but Feature 05 (Profile page) is not yet built. Expected — will resolve when Feature 05 lands. No action needed now; noted so it isn't flagged again on the next review.

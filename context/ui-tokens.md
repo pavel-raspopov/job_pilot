@@ -109,6 +109,9 @@ className="bg-purple-500 text-gray-600"
   --radius-lg: 12px;
   --radius-xl: 16px;
   --radius-full: 9999px;
+
+  /* Elevation */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
 }
 ```
 
@@ -234,7 +237,7 @@ background: bg-surface
 border: 1px solid var(--border)
 border-radius: 16px (rounded-2xl in Tailwind)
 padding: 24px (p-6)
-box-shadow: 0px 1px 3px rgba(0,0,0,0.1), 0px 1px 2px -1px rgba(0,0,0,0.1)
+box-shadow: shadow-card (use the token — never inline `shadow-[...]` values)
 ```
 
 ### Buttons

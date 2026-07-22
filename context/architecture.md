@@ -37,17 +37,19 @@
 │   ├── page.tsx                            → Homepage
 │   ├── (auth)/
 │   │   ├── login/
-│   │   │   └── page.tsx                   → Login page
+│   │   │   └── page.tsx                   → Login page (client, Suspense-wrapped)
 │   │   └── callback/
-│   │       └── page.tsx                   → OAuth callback handler
-│   ├── dashboard/
-│   │   └── page.tsx                       → Main dashboard
-│   ├── profile/
-│   │   └── page.tsx                       → Profile form + resume management
-│   ├── find-jobs/
-│   │   ├── page.tsx                       → Find Jobs page — search controls + jobs list
-│   │   └── [id]/
-│   │       └── page.tsx                   → Individual job details page
+│   │       └── route.ts                   → OAuth code exchange (Route Handler)
+│   ├── (app)/
+│   │   ├── layout.tsx                     → Authed layout — Navbar + main + Footer
+│   │   ├── dashboard/
+│   │   │   └── page.tsx                   → Main dashboard
+│   │   ├── profile/
+│   │   │   └── page.tsx                   → Profile form + resume management
+│   │   └── find-jobs/
+│   │       ├── page.tsx                   → Find Jobs page — search controls + jobs list
+│   │       └── [id]/
+│   │           └── page.tsx               → Individual job details page
 │   └── api/
 │       ├── agent/
 │       │   ├── find/route.ts              → Trigger Adzuna job discovery
@@ -62,6 +64,7 @@
 │   ├── extractor.ts                       → GPT-4o job description extraction + structuring
 │   └── types.ts                           → Agent-specific TypeScript types
 ├── actions/
+│   ├── auth.ts                            → signInWithOAuthAction, signOutAction
 │   ├── profile.ts                         → Profile save + update
 │   └── jobs.ts                            → Job status updates
 ├── components/
@@ -293,46 +296,54 @@ Access: authenticated users only, own files only.
 - Methods: Google OAuth, GitHub OAuth
 - Protected routes: /dashboard, /profile, /find-jobs, /find-jobs/[id]
 - Public routes: /, /login
-- Middleware in middleware.ts checks session on every protected route
+- Proxy in `proxy.ts` (Next.js 16 renamed `middleware` → `proxy`) checks session on every protected route via `updateSession` from `@insforge/sdk/ssr`
 - On login → redirect to /dashboard
 
 ---
 
 ## InsForge Client Pattern
 
-Two separate InsForge instances — never mix them:
+Three separate InsForge entry points — pick the right one for the job.
 
 ```typescript
 // lib/insforge-client.ts
-// Browser-side — used in client components for auth state
-import { createBrowserClient } from "@insforge/ssr";
-export const insforge = createBrowserClient(
-  process.env.NEXT_PUBLIC_INSFORGE_URL!,
-  process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
-);
+// Browser-side — used in client components for interactive auth flows and DB reads
+import { createBrowserClient } from "@insforge/sdk/ssr";
+export const insforge = createBrowserClient({
+  baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL!,
+  anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
+});
 
 // lib/insforge-server.ts
-// Server-side — used in API routes, Server Actions, agent code
-import { createServerClient } from "@insforge/ssr";
+// Server-side READ-ONLY — used in Server Components / actions / route handlers
+// when you only need to *read* the current user or query the DB.
+// ⚠️ Does NOT write cookies — cannot sign in, sign out, or exchange OAuth codes.
+import { createServerClient } from "@insforge/sdk/ssr";
 import { cookies } from "next/headers";
 
 export const createInsforgeServer = async () => {
   const cookieStore = await cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_INSFORGE_URL!,
-    process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (cookiesToSet) => {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options),
-          );
-        },
-      },
-    },
-  );
+  return createServerClient({
+    baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL!,
+    anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
+    cookies: cookieStore,
+  });
 };
+
+// Cookie-writing auth (sign-in / sign-out / OAuth code exchange)
+// Use `createAuthActions` inline inside a Server Action or Route Handler.
+import { createAuthActions } from "@insforge/sdk/ssr";
+import { cookies } from "next/headers";
+
+async function signOut() {
+  const cookieStore = await cookies();
+  const authActions = createAuthActions({
+    baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL!,
+    anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
+    cookies: cookieStore, // full read/write cookie store
+  });
+  await authActions.signOut();
+}
 ```
 
 ---
