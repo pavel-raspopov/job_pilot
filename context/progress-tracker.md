@@ -6,9 +6,9 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ## Current Status
 
-**Phase:** Phase 1 — Foundation
-**Last completed:** 03 PostHog Initialization
-**Next:** 04 Database Schema
+**Phase:** Phase 1 — Foundation (complete)
+**Last completed:** 04 Database Schema
+**Next:** 05 Profile Page — Full UI
 
 ---
 
@@ -19,7 +19,7 @@ Update this file after every completed feature. Any AI agent reading this should
 - [x] 01 Homepage
 - [x] 02 Auth
 - [x] 03 PostHog Initialization
-- [ ] 04 Database Schema
+- [x] 04 Database Schema
 
 ### Phase 2 — Profile Page
 
@@ -49,6 +49,10 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Feature 04 Database Schema — "tailored fields" on `jobs` skipped.** `build-plan.md` Feature 04 mentions "tailored fields", but the `jobs` schema in `architecture.md` (the schema source of truth) has no such columns and no feature in the 17-feature plan ever writes tailored-resume or cover-letter data (the dashboard's tailoring chart and cover-letter stat are mock-only in Feature 14; Feature 15 replaces the cover-letter stat with "Jobs This Week"). Built exactly the `architecture.md` schema. If a tailoring feature is added later, add the columns then.
+- **Feature 04 Database Schema — `user_id` FKs reference `auth.users(id)`, not `profiles(id)`.** A `profiles` row only exists after the user first saves their profile (Feature 06), so referencing `profiles` would block agent runs for users without a saved profile (or force a profile-creation trigger, out of scope for a schema-only feature). Since `profiles.id` = `auth.users.id`, the values are identical. `profiles.id` itself references `auth.users(id) ON DELETE CASCADE`.
+- **Feature 04 Database Schema — implementation details.** Migration SQL committed at `db/migrations/001_initial_schema.sql` (source of truth), applied via InsForge MCP `run-raw-sql`. CHECK constraints on agent-written enum-ish columns (`agent_runs.status`, `jobs.source`, `jobs.match_score` 0–100, `agent_logs.level`); profiles dropdown fields stay free text (UI-constrained). RLS enabled on all four tables with per-operation policies on `auth.uid()` (no `TO` role clause — the `auth.uid()` check is the gate; anon matches nothing). `jobs.run_id` and `agent_logs.job_id` are nullable with `ON DELETE SET NULL`. Private `resumes` bucket created; per-user path scoping is mediated server-side (InsForge storage has no path-scoped policy surface). Verified: `get-table-schema` on all four tables, bucket in metadata, and a live negative RLS test (anon-key REST read returns `[]`, anon-key insert rejected with 42501). `ui-registry.md` untouched — no UI in this feature.
 
 - **Feature 03 PostHog Initialization — scoped to init + identify + reset only.** A `/review` pass found the branch had drifted ahead of the plan: it added marketing-funnel events (`landing_cta_clicked` via a `components/CTALink.tsx` + `.posthog-events.json`) and bespoke auth capture events (`oauth_sign_in_started`, `sign_in_completed`, `sign_in_failed`, `sign_out`), none of which are in the approved event list in `code-standards.md`. Per "don't build ahead of the stage," all of these were removed. Feature 03 now contains exactly: client init (`instrumentation-client.ts`), client-side `identify` (`components/PostHogIdentify.tsx`, rendered in `app/(app)/layout.tsx`), and client-side `reset` on logout (new `components/layout/LogoutButton.tsx`). The four product events (`job_search_started`, `job_found`, `profile_completed`, `company_researched`) remain deferred to their owning features.
 - **Context docs reconciled to the real init approach.** The PostHog sections of `library-docs.md` / `code-standards.md` / `architecture.md` were written for an older pattern (`lib/posthog-client.ts` + `initPostHog()` + `NEXT_PUBLIC_POSTHOG_KEY` + manual pageviews). Updated to match the actual, correct Next.js 15.3+ setup: init in root `instrumentation-client.ts`, env var `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN`, `/ingest` reverse proxy in `next.config.ts`, and autocapture + automatic pageviews left ON. `lib/posthog-server.ts` is kept as initialized scaffolding for the future server-side events but is currently unused.

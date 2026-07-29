@@ -68,6 +68,9 @@
 │   ├── auth.ts                            → signInWithOAuthAction, signOutAction
 │   ├── profile.ts                         → Profile save + update
 │   └── jobs.ts                            → Job status updates
+├── db/
+│   └── migrations/
+│       └── 001_initial_schema.sql         → InsForge schema (source of truth, applied via MCP run-raw-sql)
 ├── components/
 │   ├── ui/                                → shadcn/ui components only
 │   ├── PostHogIdentify.tsx                → Client-side posthog.identify() for authed users
@@ -198,6 +201,8 @@ URL saved to profiles table
 ---
 
 ## InsForge Database Schema
+
+> **Note:** In the actual schema (`db/migrations/001_initial_schema.sql`), `user_id` columns reference `auth.users(id)` directly rather than `profiles(id)` — the values are identical (`profiles.id` = `auth.users.id`), but this avoids requiring a profiles row to exist before the first agent run. `profiles.id` references `auth.users(id) ON DELETE CASCADE`.
 
 ### `profiles`
 
