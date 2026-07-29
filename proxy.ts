@@ -1,5 +1,6 @@
 import { updateSession, type CookieStore } from '@insforge/sdk/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { env } from '@/lib/env';
 
 const PROTECTED_PREFIXES = ['/dashboard', '/profile', '/find-jobs'];
 
@@ -41,8 +42,8 @@ export async function proxy(request: NextRequest) {
   } as CookieStore;
 
   const { accessToken } = await updateSession({
-    baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL!,
-    anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
+    baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
+    anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
     requestCookies,
     responseCookies,
   });

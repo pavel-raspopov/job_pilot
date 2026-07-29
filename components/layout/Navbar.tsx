@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { createInsforgeServer } from "@/lib/insforge-server";
 import { NavbarNav } from "@/components/layout/NavbarNav";
-import { signOutAction } from "@/actions/auth";
+import { LogoutButton } from "@/components/layout/LogoutButton";
 
 export async function Navbar() {
   const insforge = await createInsforgeServer();
@@ -27,14 +27,7 @@ export async function Navbar() {
 
         <div className="flex justify-end">
           {isAuthed ? (
-            <form action={signOutAction}>
-              <button
-                type="submit"
-                className="bg-overlay-dark text-surface hover:opacity-90 transition-opacity px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Log out
-              </button>
-            </form>
+            <LogoutButton />
           ) : (
             <Link
               href="/login"

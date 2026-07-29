@@ -36,7 +36,7 @@ Two separate instances — never mix them:
 
 ```typescript
 // lib/insforge-client.ts — browser context only
-import { createBrowserClient } from "@insforge/ssr";
+import { createBrowserClient } from "@insforge/sdk/ssr";
 
 export const insforge = createBrowserClient(
   process.env.NEXT_PUBLIC_INSFORGE_URL!,
@@ -46,7 +46,7 @@ export const insforge = createBrowserClient(
 
 ```typescript
 // lib/insforge-server.ts — server context only
-import { createServerClient } from "@insforge/ssr";
+import { createServerClient } from "@insforge/sdk/ssr";
 import { cookies } from "next/headers";
 
 export const createInsforgeServer = async () => {
@@ -547,60 +547,67 @@ const result = JSON.parse(response.choices[0].message.content!);
 
 **Check first:** Check AGENTS.md for an installed PostHog skill. If a PostHog MCP server is configured — use it. The skill/MCP will have the latest client and server patterns.
 
-### Client Setup (Browser)
+### Client Setup (Browser) — Next.js 15.3+
+
+PostHog is initialised in `instrumentation-client.ts` at the project root (the Next.js 15.3+ pattern — runs once on the client before hydration). No provider component and no manual init call are needed.
 
 ```typescript
-// lib/posthog-client.ts
+// instrumentation-client.ts
 import posthog from "posthog-js";
 
-export function initPostHog() {
-  if (typeof window !== "undefined") {
-    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST!,
-      capture_pageview: false, // manual pageview tracking
-    });
-  }
-}
+const token = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
 
-// Capture event client-side
-posthog.capture("job_found", {
-  userId,
-  source: "search",
-  matchScore: score,
-});
+if (token) {
+  posthog.init(token, {
+    api_host: "/ingest", // reverse-proxied in next.config.ts
+    ui_host: "https://eu.posthog.com",
+    defaults: "2026-01-30", // autocapture + automatic pageviews ON
+    capture_exceptions: true,
+    debug: process.env.NODE_ENV === "development",
+  });
+}
+```
+
+**Reverse proxy:** `next.config.ts` routes `/ingest/*`, `/ingest/static/*`, and `/ingest/array/*` to the PostHog EU hosts so ad blockers do not drop events. Keep all three rewrites.
+
+### Identify / Reset
+
+Identification is client-side only.
+
+```typescript
+// components/PostHogIdentify.tsx — rendered in app/(app)/layout.tsx for authed users
+posthog.identify(userId, { email });
+
+// components/layout/LogoutButton.tsx — reset before the sign-out server action runs
+posthog.reset();
 ```
 
 ### Server Setup
 
 ```typescript
-// lib/posthog-server.ts
+// lib/posthog-server.ts — used later by server-side product events (job_found, company_researched)
 import { PostHog } from "posthog-node";
 
-export const createPostHogServer = () =>
-  new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-    host: process.env.NEXT_PUBLIC_POSTHOG_HOST!,
+export function getPostHogClient(): PostHog | null {
+  const token = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
+  if (!token) return null;
+  return new PostHog(token, {
+    host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://eu.i.posthog.com",
     flushAt: 1, // send immediately
     flushInterval: 0, // no batching — Next.js functions are short-lived
   });
-
-// Always use and shutdown in the same function
-const posthog = createPostHogServer();
-posthog.capture({
-  distinctId: userId,
-  event: "company_researched",
-  properties: { userId, jobId, company },
-});
-await posthog.shutdown(); // required — ensures event is sent
+}
 ```
 
 **Rules:**
 
-- Always call `await posthog.shutdown()` in server-side functions — events are lost without it
+- Client init lives in `instrumentation-client.ts` — never re-init PostHog elsewhere
+- Keep autocapture + automatic pageviews ON (`defaults`) — do not set `capture_pageview: false`
+- Identify only on the client (`PostHogIdentify`); reset on logout (`LogoutButton`) — never identify server-side
+- Server client: always `await posthog.flush()` after capture in a shared client — events are lost without it
 - `flushAt: 1` and `flushInterval: 0` always set on server client
-- Event names must match exactly the list in `code-standards.md`
+- Event names must match exactly the list in `code-standards.md` — no bespoke auth events
 - Always include `userId` as a property on every server-side event
-- Call `posthog.identify(userId)` after login on client side
-- Call `posthog.reset()` on logout on client side
 
 ---
 

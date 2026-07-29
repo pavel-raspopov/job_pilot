@@ -235,6 +235,10 @@ These four events are the only events in this project. Do not add more without u
 `company_researched` powers the Company Research Activity dashboard chart.
 Always fire these with correct properties.
 
+**Wiring order:** these are product events tied to features that do not exist yet — each is added only when its owning feature is built (`job_search_started` / `job_found` with Adzuna discovery, `profile_completed` with the profile page, `company_researched` with the research agent). Do not add any of them ahead of its feature.
+
+**Initialization vs. events:** PostHog client initialization (autocapture + pageviews) lives in `instrumentation-client.ts`; the server client lives in `lib/posthog-server.ts`. Identification is client-side only — `posthog.identify(userId)` via `components/PostHogIdentify.tsx` (rendered in the authed layout) and `posthog.reset()` on logout via `components/layout/LogoutButton.tsx`. Do NOT add bespoke auth capture events (e.g. `sign_in_completed`, `sign_out`); autocapture and identification cover the auth funnel until a documented event says otherwise.
+
 ---
 
 ## Environment Variables
@@ -250,10 +254,12 @@ All environment variables defined in `.env.local` for development. Never hardcod
 | `OPENAI_API_KEY`                | agent/ functions       |
 | `ADZUNA_APP_ID`                 | lib/adzuna.ts          |
 | `ADZUNA_APP_KEY`                | lib/adzuna.ts          |
-| `NEXT_PUBLIC_POSTHOG_KEY`       | lib/posthog-client.ts  |
-| `NEXT_PUBLIC_POSTHOG_HOST`      | lib/posthog-client.ts  |
+| `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` | instrumentation-client.ts, lib/posthog-server.ts |
+| `NEXT_PUBLIC_POSTHOG_HOST`          | lib/posthog-server.ts (server flush host)         |
 
 `NEXT_PUBLIC_` prefix means the variable is exposed to the browser. Never add `NEXT_PUBLIC_` to secret keys.
+
+Required env vars are validated once at boot in `lib/env.ts` (zod schema) and exported as the typed `env` constant. Import from `@/lib/env` and read `env.X` — never `process.env.X!`. Add a new required var to the `lib/env.ts` schema when the feature that needs it is built. Optional integrations that degrade gracefully when unset (e.g. the PostHog token) are read directly at their use site and must NOT be added to the schema.
 
 ---
 
@@ -305,7 +311,7 @@ Never install a new package without a clear reason. Before installing anything c
 
 Approved dependencies for this project:
 
-- `@insforge/ssr` — InsForge client
+- `@insforge/sdk` — InsForge client (SSR helpers under `@insforge/sdk/ssr`)
 - `@browserbasehq/sdk` — Browserbase sessions
 - `@browserbasehq/stagehand` — AI browser control
 - `openai` — GPT-4o API

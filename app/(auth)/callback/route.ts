@@ -1,6 +1,7 @@
 import { createAuthActions } from '@insforge/sdk/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, type NextRequest } from 'next/server';
+import { env } from '@/lib/env';
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('insforge_code');
@@ -16,8 +17,8 @@ export async function GET(request: NextRequest) {
     const cookieStore = await cookies();
 
     const authActions = createAuthActions({
-      baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL!,
-      anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
+      baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
+      anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
       cookies: cookieStore,
     });
 

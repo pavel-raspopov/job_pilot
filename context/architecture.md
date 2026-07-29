@@ -22,6 +22,7 @@
 ```
 /
 ├── AGENTS.md
+├── instrumentation-client.ts               → PostHog browser init (Next.js 15.3+ client instrumentation)
 ├── context/
 │   ├── project-overview.md
 │   ├── architecture.md
@@ -33,7 +34,7 @@
 │   ├── build-plan.md
 │   └── progress-tracker.md
 ├── app/
-│   ├── layout.tsx                          → Root layout, PostHog provider
+│   ├── layout.tsx                          → Root layout
 │   ├── page.tsx                            → Homepage
 │   ├── (auth)/
 │   │   ├── login/
@@ -69,8 +70,11 @@
 │   └── jobs.ts                            → Job status updates
 ├── components/
 │   ├── ui/                                → shadcn/ui components only
+│   ├── PostHogIdentify.tsx                → Client-side posthog.identify() for authed users
 │   ├── layout/
 │   │   ├── Navbar.tsx
+│   │   ├── NavbarNav.tsx
+│   │   ├── LogoutButton.tsx
 │   │   └── Footer.tsx
 │   ├── homepage/
 │   │   ├── Hero.tsx
@@ -102,8 +106,7 @@
 │   ├── browserbase.ts                     → Browserbase session creation + management
 │   ├── stagehand.ts                       → Stagehand initialisation with Browserbase session
 │   ├── adzuna.ts                          → Adzuna API client
-│   ├── posthog-client.ts                  → PostHog browser client
-│   ├── posthog-server.ts                  → PostHog server client
+│   ├── posthog-server.ts                  → PostHog server client (server-side events)
 │   └── utils.ts                           → Shared utility functions
 └── types/
     └── index.ts                           → Global TypeScript types

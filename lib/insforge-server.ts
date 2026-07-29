@@ -1,5 +1,6 @@
 import { createServerClient } from '@insforge/sdk/ssr';
 import { cookies } from 'next/headers';
+import { env } from '@/lib/env';
 
 /**
  * InsForge server client for **read-only** session use.
@@ -20,8 +21,8 @@ export async function createInsforgeServer() {
   const cookieStore = await cookies();
 
   return createServerClient({
-    baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL!,
-    anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
+    baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
+    anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
     cookies: cookieStore,
   });
 }

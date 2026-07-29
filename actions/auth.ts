@@ -4,6 +4,7 @@ import { createAuthActions } from '@insforge/sdk/ssr';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { env } from '@/lib/env';
 
 type OAuthProvider = 'google' | 'github';
 
@@ -44,8 +45,8 @@ export async function signInWithOAuthAction(
 
     const cookieStore = await cookies();
     const authActions = createAuthActions({
-      baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL!,
-      anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
+      baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
+      anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
       cookies: cookieStore,
     });
 
@@ -85,8 +86,8 @@ export async function signOutAction(): Promise<never> {
   try {
     const cookieStore = await cookies();
     const authActions = createAuthActions({
-      baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL!,
-      anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
+      baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
+      anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
       cookies: cookieStore,
     });
     const { error } = await authActions.signOut();

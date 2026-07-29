@@ -1,6 +1,7 @@
 import { createBrowserClient } from '@insforge/sdk/ssr';
+import { env } from '@/lib/env';
 
 export const insforge = createBrowserClient({
-  baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL!,
-  anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY!,
+  baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
+  anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
 });

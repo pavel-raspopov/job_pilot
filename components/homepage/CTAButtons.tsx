@@ -6,7 +6,7 @@ export async function CTAButtons() {
   const insforge = await createInsforgeServer();
   const { data } = await insforge.auth.getCurrentUser();
   const user = data?.user;
-  
+
   const targetRoute = user ? "/dashboard" : "/login";
 
   return (
