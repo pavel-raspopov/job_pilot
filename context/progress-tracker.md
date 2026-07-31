@@ -6,9 +6,9 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ## Current Status
 
-**Phase:** Phase 1 — Foundation (complete)
-**Last completed:** 04 Database Schema
-**Next:** 05 Profile Page — Full UI
+**Phase:** Phase 2 — Profile Page (in progress)
+**Last completed:** 05 Profile Page — Full UI
+**Next:** 06 Profile Save Logic
 
 ---
 
@@ -23,7 +23,7 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ### Phase 2 — Profile Page
 
-- [ ] 05 Profile Page — Full UI
+- [x] 05 Profile Page — Full UI
 - [ ] 06 Profile Save Logic
 - [ ] 07 AI Profile Extraction from Resume
 - [ ] 08 Resume PDF Generation from Profile
@@ -49,6 +49,9 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Feature 05 Profile Page — "Cover Letter Tone" dropdown omitted (2026-07-31).** `build-plan.md` Feature 05 lists it under Job Preferences, but the binding design (`context/designs/profile.png`) omits it and cover-letter generation is explicitly out of product scope. User confirmed: design wins. The `profiles.cover_letter_tone` DB column stays; the UI never exposes it unless a cover-letter feature is scoped.
+- **Feature 05 Profile Page — scope decisions.** Mock UI with local client-side interactivity only (skill/industry tags add-remove, up to 3 work-experience roles via "+ Add role", Currently-working checkbox disables End Date, resume dropzone shows the selected filename). No save/upload logic, no `profile_completed` event (both Feature 06). Email is the one real value — pre-filled read-only from the InsForge session in the server page. Attention banner (70% ring, PHONE/LOCATION/EDUCATION tags) is hardcoded mock; real completion math arrives with Feature 06. Banner markup lives in `app/(app)/profile/page.tsx` composing `CompletionIndicator` — architecture.md's component tree lists exactly `ProfileForm` / `ResumeUpload` / `ResumePreview` / `CompletionIndicator`, so no extra banner component was invented; `ResumePreview.tsx` is deferred until a feature displays an uploaded resume.
 
 - **Match-score bar color thresholds reconciled (2026-07-31).** `ui-tokens.md` and `ui-rules.md` disagreed on fill ranges (90/70/50 vs 80/60 breakpoints). Resolved in favor of `ui-tokens.md` because its green-from-70 boundary matches the product's High Match filter (`match_score >= 70`, build-plan.md Feature 11). Canonical: green (#10B981) at 70–100, orange (#FF8904) at 50–69, gray (#99A1AF) below 50; blue never appears in score bars. `ui-rules.md` and root `DESIGN.md` updated to agree. Applies when Features 09–12 build the score bar.
 - **Feature 04 Database Schema — "tailored fields" on `jobs` skipped.** `build-plan.md` Feature 04 mentions "tailored fields", but the `jobs` schema in `architecture.md` (the schema source of truth) has no such columns and no feature in the 17-feature plan ever writes tailored-resume or cover-letter data (the dashboard's tailoring chart and cover-letter stat are mock-only in Feature 14; Feature 15 replaces the cover-letter stat with "Jobs This Week"). Built exactly the `architecture.md` schema. If a tailoring feature is added later, add the columns then.

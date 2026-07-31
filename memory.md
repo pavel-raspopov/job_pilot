@@ -1,42 +1,42 @@
-# Memory — Feature 04 Database Schema
+# Memory — Feature 05 Profile Page UI
 
-Last updated: 7/29/2026, 4:46 PM
+Last updated: 7/31/2026, 6:16 PM
 
 ## What was built
 
-- **Feature 04 Database Schema complete — Phase 1 Foundation is done.** All infra lives on the InsForge backend (verified live, not just in SQL):
-  - Four tables: `profiles` (24 cols), `agent_runs` (8), `jobs` (23), `agent_logs` (7) — columns exactly per `architecture.md`.
-  - RLS enabled on all four with 16 per-operation policies gated on `auth.uid()` (`profiles` keyed on `id`, others on `user_id`), `WITH CHECK` on INSERT/UPDATE.
-  - CHECK constraints on agent-written enums (`agent_runs.status`, `jobs.source`, `jobs.match_score` 0–100, `agent_logs.level`); 4 indexes for Find Jobs / Dashboard query paths.
-  - Private `resumes` storage bucket (non-public).
-- **`db/migrations/001_initial_schema.sql` (NEW)** — the committed source of truth for the schema.
-- Docs updated: `progress-tracker.md` (Feature 04 done + decisions), `architecture.md` (FK note under schema section + `db/` added to folder tree).
-- Reviews all clean: Bugbot (0 findings), Security Review (0 findings), project 3-layer `/review` (3 minor items; folder-tree drift fixed, other two are documented trade-offs).
+- **Feature 05 Profile Page — Full UI complete** (mock data + local client interactivity; no save/upload logic).
+  - `app/(app)/profile/page.tsx` — async server page; session email from InsForge; attention banner (PHONE/LOCATION/EDUCATION + 70% ring) + `ResumeUpload` + `ProfileForm`.
+  - `components/profile/CompletionIndicator.tsx` — SVG error-colored completion ring.
+  - `components/profile/ResumeUpload.tsx` — dashed dropzone, Select Resume, Generate Resume from Profile (inert).
+  - `components/profile/ProfileForm.tsx` — full form sections matching `context/designs/profile.png`; skill/industry tags; up to 3 work roles; Currently-working disables End Date; Save Profile inert.
+- Docs: `context/progress-tracker.md` (05 done, next 06), `context/ui-registry.md` (profile patterns).
+- Housekeeping: refreshed `.impeccable/design.json` sidecar; task-observer observations 1–3 ACTIONED (impeccable `--target` quoting; architect Step 1b plan-vs-design; imprint Step 2b verify capability claims). Created `skill-observations/` log.
+- `/feature-review` run; Important radius drift fixed (`rounded-lg` → `rounded-md` on dropzone + nested role cards).
 
 ## Decisions made
 
-- **"Tailored fields" on `jobs` skipped.** `build-plan.md` Feature 04 mentions them but `architecture.md` has no such columns and no feature in the 17-feature plan ever writes tailoring/cover-letter data. Add columns only if a tailoring feature is ever scoped.
-- **`user_id` FKs reference `auth.users(id)`, not `profiles(id)`.** A profiles row only exists after Feature 06's first save; referencing `auth.users` avoids a profile-creation trigger and never blocks agent runs. `profiles.id` references `auth.users(id) ON DELETE CASCADE`.
-- **No DB triggers.** Profile rows come from app-level upsert (Feature 06); `updated_at` is set by the Server Action.
-- **Schema applied via MCP `run-raw-sql`, not InsForge's migration endpoint** — so it is NOT recorded in `system.custom_migrations`. The repo SQL file is the rebuild source of truth.
+- **Cover Letter Tone dropdown omitted** — build-plan listed it; design + product scope (no cover letters) win. `profiles.cover_letter_tone` column stays unused in UI.
+- **Email from real session** (read-only); other fields are mock (Faizan Ali / Vercel). Local interactivity only — no persistence.
+- **No `ResumePreview.tsx`** this feature — architecture lists it; deferred until something exists to preview.
+- **Attention banner lives inline in the page**, composing `CompletionIndicator` — no extra banner component invented beyond architecture’s tree.
 
 ## Problems solved
 
-- **`run-raw-sql` blocks `BEGIN/COMMIT` and `SET ROLE`** — RLS cannot be negative-tested via SQL role simulation. Test via the REST API instead: `GET/POST {baseUrl}/api/database/records/{table}` with the plain anon key. Verified: anon read returns `[]` (200), anon insert rejected with 42501 RLS violation (401).
-- **InsForge storage has no `upsert: true`** (contrary to `build-plan.md` Features 06/08): uploading to an existing key auto-renames and returns a new key. Feature 06 must save the returned `key`/`url` from every upload (or delete-then-upload) instead of assuming a stable `resumes/{user_id}/resume.pdf` path.
-- **InsForge storage has no path-scoped policies** — per-user isolation of `resumes/{user_id}/...` must be enforced server-side in Server Actions / API routes (bucket is private; all access is mediated).
+- Impeccable `context.mjs --target` must be **quoted** when path has Next.js route groups `(app)`.
+- `ui-registry.md` falsely claimed no error/success tokens — tokens exist in `app/globals.css`; registry corrected; imprint now requires re-verifying capability claims.
+- Two-tier radius only: cards `rounded-2xl`, controls/sub-blocks `rounded-md` — never `rounded-lg`.
 
 ## Current state
 
-- **Phase 1 (Features 01–04) complete.** Next unbuilt feature: **05 Profile Page — Full UI**.
-- Backend live and verified: 4 tables (0 rows), 16 policies, private `resumes` bucket (0 objects).
-- **Feature 04 changes are NOT yet committed** — working tree has `M context/architecture.md`, `M context/progress-tracker.md`, untracked `db/`. Last commit is Feature 03 (`0ae7b52`).
+- Phase 2 started. Feature 05 UI works at `/profile` (auth-protected; verified `GET /profile` 200 in dev).
+- **Not committed** — working tree has profile files, skill/docs updates, `skill-observations/`, modified architect/imprint/impeccable skills + design.json.
+- Minors from review left open (not blocking): PDF type check only on drop not file-picker; no remove-role control; mock EDUCATION inconsistency; `SelectField`/`TagInput` still private helpers inside `ProfileForm.tsx`; dropdown display labels vs schema enums (map in Feature 06).
 
 ## Next session starts with
 
-- Commit the Feature 04 changes, then build **Feature 05 Profile Page — Full UI** per `build-plan.md`: complete profile page UI with mock data only (no save logic) — attention banner with completion ring, resume upload area, full profile form sections, Save button. This also resolves deferred item #10 (`/profile` nav 404).
+1. Commit Feature 05 (+ docs/skill housekeeping if desired), then build **Feature 06 Profile Save Logic** per `build-plan.md`: Server Action in `actions/profile.ts`, resume upload to InsForge Storage (remember: no upsert — persist returned key/url; path isolation server-side), completion % / missing fields / `is_complete`, form pre-fill, `revalidatePath('/profile')`. Map dropdown UI labels → schema enum values on save.
 
-## Open questions / notes for later
+## Open questions
 
-- **Security (informational, below threshold):** INSERT policies don't check that `run_id`/`job_id` belong to the inserting user. Fine while only server-side agent code writes `jobs`/`agent_logs`; add `EXISTS` ownership checks to policies if clients ever insert directly.
-- **[#8] OAuth callback request-ID correlation** — still deferred, optional production nicety.
+- Whether to extract `SelectField` / `TagInput` into their own files before Feature 06 (Minor from review) or leave until reuse appears.
+- Optional deferred: OAuth callback request-ID correlation (#8).

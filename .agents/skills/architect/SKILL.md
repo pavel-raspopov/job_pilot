@@ -17,6 +17,19 @@ Before saying anything, take stock of what already exists:
 
 Do not ask about anything already clearly answered by existing documentation. A good senior engineer does their homework before the meeting.
 
+## Step 1b — Reconcile Authoritative Sources
+
+Before aligning language, diff the feature's authoritative sources against each other and against product scope. Typical sources: `context/build-plan.md`, `context/architecture.md`, design assets under `context/designs/`, and out-of-scope lists in `context/project-overview.md`.
+
+When two sources conflict (extra field in the plan but missing from the design; schema columns the UI never shows; a feature that product scope forbids):
+
+1. Name the conflict plainly — which documents disagree, and on what.
+2. Recommend one resolution with a one-line why (usually: design asset + product scope win over a stale plan bullet).
+3. Ask the developer to decide. Do not silently follow either document.
+4. Record the chosen resolution in the Implementation Plan's Decisions made, and later in `context/progress-tracker.md` when the feature ships.
+
+Do not invent a third compromise. Surface the conflict as a decision and wait.
+
 ## Step 2 — Align on Language
 
 Every project has its own vocabulary. Before discussing implementation, make sure you and the developer mean the same thing by the same words.

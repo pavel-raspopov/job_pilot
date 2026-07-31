@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-07-31T14:20:00+03:00",
+  "generatedAt": "2026-07-31T18:05:41+03:00",
   "title": "Design System: JobPilot",
   "extensions": {
     "colorMeta": {
@@ -133,7 +133,7 @@
       "name": "Match Score Bar",
       "kind": "custom",
       "refersTo": "badge",
-      "description": "Signature inline 4px progress pill next to the score percentage.",
+      "description": "Signature inline 4px progress pill next to the score percentage. Fill follows High Match (>=70): Meadow 70–100, Amber Signal 50–69, Faded Ink below 50. Sky never appears in score bars.",
       "html": "<div class=\"ds-score\"><span class=\"ds-score-num\">86%</span><div class=\"ds-score-track\"><div class=\"ds-score-fill\"></div></div></div>",
       "css": ".ds-score { display: flex; align-items: center; gap: 8px; font-family: Inter, sans-serif; } .ds-score-num { font-size: 14px; font-weight: 500; line-height: 20px; color: var(--color-text-primary, #101828); } .ds-score-track { width: 96px; height: 4px; border-radius: 9999px; background: var(--color-border-light, #e5e7eb); overflow: hidden; } .ds-score-fill { width: 86%; height: 100%; border-radius: 9999px; background: var(--color-success, #10b981); }"
     },

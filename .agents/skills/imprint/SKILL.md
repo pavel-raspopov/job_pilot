@@ -86,6 +86,16 @@ Read the component code. Extract only the classes and values that affect visual 
 
 ---
 
+## Step 2b — Verify Capability Claims Against Source of Truth
+
+Before writing (or when reading the registry to decide what is allowed), treat `ui-registry.md` as history, not absolute truth. Capability claims such as "token X doesn't exist yet", "no error variant", or "the system has no Y" must be re-checked against the live sources before they constrain the build or get re-recorded:
+
+- Color / radius / shadow tokens → `app/globals.css` `@theme` (and `context/ui-tokens.md`)
+- Layout and component rules → `context/ui-rules.md`
+- Visual system narrative → `DESIGN.md`
+
+If a registry claim is stale, correct that entry in the same session's registry update — do not leave a known-false limitation for the next agent to rediscover.
+
 ## Step 3 — Write to ui-registry.md
 
 Open `ui-registry.md`. If it does not exist, create it.
