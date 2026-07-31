@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-31T14:20:00+03:00",
+  "title": "Design System: JobPilot",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Iris",
+        "canonical": "#7c5cfc",
+        "tonalRamp": ["oklch(25% 0.12 285)", "oklch(35% 0.16 285)", "oklch(45% 0.19 285)", "oklch(58% 0.21 285)", "oklch(68% 0.17 285)", "oklch(78% 0.12 285)", "oklch(88% 0.07 285)", "oklch(96% 0.03 285)"]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Cloud Field",
+        "canonical": "#f6f7fb",
+        "tonalRamp": ["oklch(21% 0.02 270)", "oklch(35% 0.015 270)", "oklch(50% 0.012 270)", "oklch(65% 0.01 270)", "oklch(78% 0.008 270)", "oklch(88% 0.006 270)", "oklch(94% 0.005 270)", "oklch(97.5% 0.005 270)"]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#101828",
+        "tonalRamp": ["oklch(15% 0.02 265)", "oklch(21% 0.02 265)", "oklch(32% 0.02 265)", "oklch(45% 0.018 265)", "oklch(58% 0.015 265)", "oklch(72% 0.012 265)", "oklch(85% 0.008 265)", "oklch(95% 0.004 265)"]
+      },
+      "success": {
+        "role": "functional",
+        "displayName": "Meadow",
+        "canonical": "#10b981",
+        "tonalRamp": ["oklch(28% 0.07 163)", "oklch(38% 0.1 163)", "oklch(50% 0.12 163)", "oklch(60% 0.14 163)", "oklch(70% 0.15 163)", "oklch(80% 0.12 163)", "oklch(90% 0.08 163)", "oklch(96% 0.04 163)"]
+      },
+      "info": {
+        "role": "functional",
+        "displayName": "Sky",
+        "canonical": "#61a8ff",
+        "tonalRamp": ["oklch(28% 0.09 258)", "oklch(40% 0.13 258)", "oklch(52% 0.16 258)", "oklch(62% 0.16 258)", "oklch(72% 0.14 258)", "oklch(82% 0.1 258)", "oklch(90% 0.06 258)", "oklch(96% 0.03 258)"]
+      },
+      "warning": {
+        "role": "functional",
+        "displayName": "Amber Signal",
+        "canonical": "#ff8904",
+        "tonalRamp": ["oklch(35% 0.09 60)", "oklch(45% 0.12 60)", "oklch(55% 0.15 60)", "oklch(65% 0.16 60)", "oklch(75% 0.17 60)", "oklch(83% 0.13 60)", "oklch(90% 0.08 60)", "oklch(96% 0.04 60)"]
+      },
+      "error": {
+        "role": "functional",
+        "displayName": "Alert Red",
+        "canonical": "#ef4444",
+        "tonalRamp": ["oklch(30% 0.12 25)", "oklch(40% 0.16 25)", "oklch(50% 0.19 25)", "oklch(63% 0.21 25)", "oklch(72% 0.17 25)", "oklch(81% 0.12 25)", "oklch(89% 0.07 25)", "oklch(96% 0.03 25)"]
+      },
+      "overlay-dark": {
+        "role": "neutral",
+        "displayName": "Night Ink",
+        "canonical": "#131316",
+        "tonalRamp": ["oklch(17% 0.005 280)", "oklch(25% 0.005 280)", "oklch(35% 0.005 280)", "oklch(48% 0.005 280)", "oklch(60% 0.005 280)", "oklch(74% 0.004 280)", "oklch(86% 0.003 280)", "oklch(95% 0.002 280)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Homepage hero headline only; 36/48/56px responsive steps." },
+      "headline": { "displayName": "Headline", "purpose": "Page-level headings (login card, dashboard title)." },
+      "stat": { "displayName": "Stat", "purpose": "Dashboard stat-card numbers; the largest recurring number on screen." },
+      "title": { "displayName": "Title", "purpose": "Card and section headings." },
+      "body": { "displayName": "Body", "purpose": "Nearly all content: nav, table rows, buttons, activity text." },
+      "label": { "displayName": "Label", "purpose": "Badges, trend chips, uppercase table column headers. Muted variant drops to weight 400 for timestamps and placeholders." }
+    },
+    "shadows": [
+      { "name": "shadow-card", "value": "0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)", "purpose": "The only shadow: ambient lift under white cards. Border-first system; never add hover glows or an elevation ladder." }
+    ],
+    "motion": [
+      { "name": "transition-standard", "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Tailwind default used via transition-colors / transition-opacity on buttons and links. No bounce or elastic easing anywhere." }
+    ],
+    "breakpoints": [
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one Iris action on a surface; the main CTA inside app pages.",
+      "html": "<button class=\"ds-btn-primary\">Find Jobs</button>",
+      "css": ".ds-btn-primary { background: var(--color-accent, #7c5cfc); color: var(--color-accent-foreground, #ffffff); font-family: Inter, sans-serif; font-size: 14px; font-weight: 500; line-height: 20px; padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-primary:hover { opacity: 0.9; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--color-accent, #7c5cfc); } .ds-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }"
+    },
+    {
+      "name": "Dark CTA Button",
+      "kind": "button",
+      "refersTo": "button-dark",
+      "description": "Night Ink CTA used for navbar 'Start for Free' and GitHub OAuth.",
+      "html": "<button class=\"ds-btn-dark\">Start for Free</button>",
+      "css": ".ds-btn-dark { background: var(--color-overlay-dark, #131316); color: var(--color-surface, #ffffff); font-family: Inter, sans-serif; font-size: 14px; font-weight: 500; line-height: 20px; padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-dark:hover { opacity: 0.9; } .ds-btn-dark:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--color-accent, #7c5cfc); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Quiet bordered action; white surface, Hairline border.",
+      "html": "<button class=\"ds-btn-secondary\">View Details</button>",
+      "css": ".ds-btn-secondary { background: var(--color-surface, #ffffff); color: var(--color-text-primary, #101828); font-family: Inter, sans-serif; font-size: 14px; font-weight: 500; line-height: 20px; padding: 8px 16px; border: 1px solid var(--color-border, #e7eaf3); border-radius: 8px; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-secondary:hover { background: var(--color-surface-secondary, #f9fafb); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--color-accent, #7c5cfc); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Transparent tertiary action in Slate Voice.",
+      "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: var(--color-text-secondary, #6a7282); font-family: Inter, sans-serif; font-size: 14px; font-weight: 500; line-height: 20px; padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-ghost:hover { background: var(--color-surface-secondary, #f9fafb); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--color-accent, #7c5cfc); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The canonical content container: white, hairline border, 16px radius, ambient shadow.",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-title\">Recent Activity</h3><p class=\"ds-card-body\">Everything the agent prepared, laid out for review.</p></div>",
+      "css": ".ds-card { background: var(--color-surface, #ffffff); border: 1px solid var(--color-border, #e7eaf3); border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1); font-family: Inter, sans-serif; } .ds-card-title { margin: 0 0 8px; font-size: 16px; font-weight: 600; line-height: 24px; color: var(--color-text-primary, #101828); } .ds-card-body { margin: 0; font-size: 14px; font-weight: 500; line-height: 20px; color: var(--color-text-secondary, #6a7282); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Standard field: white, hairline border, Iris focus ring.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Job title, e.g. Frontend Developer\" />",
+      "css": ".ds-input { background: var(--color-surface, #ffffff); color: var(--color-text-primary, #101828); font-family: Inter, sans-serif; font-size: 14px; font-weight: 500; line-height: 20px; padding: 8px 12px; border: 1px solid var(--color-border, #e7eaf3); border-radius: 8px; width: 280px; transition: box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1), border-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-input::placeholder { color: var(--color-text-muted, #99a1af); font-weight: 400; } .ds-input:focus { outline: none; border-color: var(--color-accent, #7c5cfc); box-shadow: 0 0 0 1px var(--color-accent, #7c5cfc); }"
+    },
+    {
+      "name": "High Match Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "Pill badge signaling a strong match; Meadow wash with deep green text.",
+      "html": "<span class=\"ds-badge-match\">High Match</span>",
+      "css": ".ds-badge-match { display: inline-block; background: var(--color-success-lightest, #ecfdf5); color: var(--color-success-foreground, #007a55); font-family: Inter, sans-serif; font-size: 12px; font-weight: 500; line-height: 16px; padding: 2px 8px; border-radius: 9999px; }"
+    },
+    {
+      "name": "Match Score Bar",
+      "kind": "custom",
+      "refersTo": "badge",
+      "description": "Signature inline 4px progress pill next to the score percentage.",
+      "html": "<div class=\"ds-score\"><span class=\"ds-score-num\">86%</span><div class=\"ds-score-track\"><div class=\"ds-score-fill\"></div></div></div>",
+      "css": ".ds-score { display: flex; align-items: center; gap: 8px; font-family: Inter, sans-serif; } .ds-score-num { font-size: 14px; font-weight: 500; line-height: 20px; color: var(--color-text-primary, #101828); } .ds-score-track { width: 96px; height: 4px; border-radius: 9999px; background: var(--color-border-light, #e5e7eb); overflow: hidden; } .ds-score-fill { width: 86%; height: 100%; border-radius: 9999px; background: var(--color-success, #10b981); }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "button-ghost",
+      "description": "Top navbar links: color-only active state, Iris for the current route.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link ds-nav-active\" href=\"#\">Dashboard</a><a class=\"ds-nav-link\" href=\"#\">Find Jobs</a><a class=\"ds-nav-link\" href=\"#\">Profile</a></nav>",
+      "css": ".ds-nav { display: flex; gap: 24px; align-items: center; background: var(--color-surface, #ffffff); padding: 8px 24px; font-family: Inter, sans-serif; } .ds-nav-link { font-size: 14px; font-weight: 500; line-height: 20px; color: var(--color-text-dark, #364153); text-decoration: none; transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-nav-link:hover { color: var(--color-text-primary, #101828); } .ds-nav-link:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--color-accent, #7c5cfc); border-radius: 4px; } .ds-nav-active { color: var(--color-accent, #7c5cfc); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Calm Briefing",
+    "overview": "JobPilot's interface is the desk where everything the agent prepared is laid out neatly so the human can decide. The system is calm and trustworthy: a cool, faintly lavender-tinted ground (#F6F7FB) holds plain white cards, and almost everything on screen is quiet neutral ink. One color — Iris purple (#7C5CFC) — carries the entire brand voice: the primary action, the active nav item, the focus ring. Status colors (green, blue, orange) appear only as small, factual signals — badges, score bars, activity dots — never as decoration. Density is comfortable, not cramped. Structure comes from hairline borders and generous card padding rather than shadows or heavy dividers. The typography is a single family (Inter) worked hard across weights: bold and tight for the one hero moment, semibold for headings and stats, medium for nearly all reading text. Nothing glows, bounces, or gradients its way into attention; the design earns trust by staying out of the way of the information.",
+    "keyCharacteristics": [
+      "Light-only theme: white surfaces on a cool tinted background, dark ink text",
+      "One accent (Iris) used sparingly and always meaningfully",
+      "Border-first structure; a single whisper-quiet card shadow",
+      "Color lives inside cards (badges, bars, dots) — never on card surfaces",
+      "Refined and restrained controls; small type sizes, confident weights"
+    ],
+    "rules": [
+      { "name": "The One Purple Rule", "body": "Iris (#7C5CFC) is the only purple in the system. Never use Tailwind's built-in purple scale or any second purple.", "section": "colors" },
+      { "name": "The Color-Inside Rule", "body": "Card surfaces are always white. Color enters a card only through its contents — badges, score bars, dots, chart marks, text — never through the card background.", "section": "colors" },
+      { "name": "The Token Gate", "body": "No raw hex values and no built-in Tailwind color classes in components. Every color goes through a @theme token in app/globals.css.", "section": "colors" },
+      { "name": "The Inter-Only Rule", "body": "No secondary or display typeface, ever. Emphasis is achieved with weight and italics, not new fonts.", "section": "typography" },
+      { "name": "The One-Weight Rule", "body": "Never mix font weights inside a single UI element.", "section": "typography" },
+      { "name": "The One-Shadow Rule", "body": "shadow-card is the entire shadow vocabulary. No hover glows, no colored shadows, no elevation ladder.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do route every color through a @theme token; the utility classes (bg-accent, text-text-primary) are the only way color enters a component.",
+      "Do keep cards white with 1px Hairline borders, 16px radius, 24px padding, and the shadow-card token.",
+      "Do use rounded-md (8px) and px-4 py-2 on every button, and focus:ring-1 focus:ring-accent on every interactive control.",
+      "Do give every empty-able section a minimal empty state: Faded Ink text, optional icon, a CTA when a next action exists.",
+      "Do keep tables as white rows separated by Hairline borders with uppercase 12px column headers — no zebra striping."
+    ],
+    "donts": [
+      "Don't use raw Tailwind color classes or inline hex values anywhere in components.",
+      "Don't put gradients or colors on card backgrounds; the blurred hero orbs are a marketing-surface-only exception.",
+      "Don't introduce a second font, a second purple, or a second shadow.",
+      "Don't use position: fixed, sidebars, or drawers — top navbar and normal flow only.",
+      "Don't show raw error messages; translate to human-readable text in a neutral notice banner."
+    ]
+  }
+}

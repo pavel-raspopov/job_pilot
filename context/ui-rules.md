@@ -163,11 +163,11 @@ border-radius: 9999px
 background track: #E7EAF3
 ```
 
-Fill color by score:
+Fill color by score (aligned with the High Match filter boundary of 70 in build-plan.md; matches ui-tokens.md):
 
-- 80-100%: `#10B981` (green)
-- 60-79%: `#61A8FF` (blue)
-- Below 60%: `#FF8904` (orange)
+- 70-100%: `#10B981` (`text-success` / green) — High Match territory
+- 50-69%: `#FF8904` (`text-warning` / orange)
+- Below 50%: `#99A1AF` (`text-text-muted` / gray)
 
 ---
 

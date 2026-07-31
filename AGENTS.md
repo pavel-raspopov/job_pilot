@@ -64,6 +64,7 @@ Read in this exact order before any implementation:
 - `/systematic-debugging` – when facing bugs or test failures. Find root cause first.
 - `/verification-before-completion` – before marking task complete. Test, build, and validate.
 - `/task-observer` – invoke at the start of every task-oriented session. Watches the session for skill improvement opportunities and logs observations.
+- `/impeccable <command>` – design guidance for frontend work (`init`, `audit`, `critique`, `polish`, `shape`, `animate`, and more). Run `/impeccable init` once to set up design context; type `/impeccable` alone to see all 23 commands.
 
 # InsForge SDK Documentation - Overview
 
