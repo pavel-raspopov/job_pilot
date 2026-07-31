@@ -52,7 +52,7 @@ Read in this exact order before any implementation:
 
 - `/architect` — before any complex feature. Think before building.
 - `/imprint` — after any new UI component. Capture patterns.
-- `/review` — before demo or when something feels off.
+- `/feature-review` — the project's custom 3-layer review. Run before demo or when something feels off. Always prefer this over Bugbot / Security Review subagents when the user asks for a "review".
 - `/recover` — when something breaks after one failed correction.
 - `/remember save` — when a feature spans multiple sessions.
 - `/remember restore` — when returning after a multi-session feature.
@@ -63,6 +63,7 @@ Read in this exact order before any implementation:
 - `/test-driven-development` – when writing new code or fixes. Write failing tests first.
 - `/systematic-debugging` – when facing bugs or test failures. Find root cause first.
 - `/verification-before-completion` – before marking task complete. Test, build, and validate.
+- `/task-observer` – invoke at the start of every task-oriented session. Watches the session for skill improvement opportunities and logs observations.
 
 # InsForge SDK Documentation - Overview
 

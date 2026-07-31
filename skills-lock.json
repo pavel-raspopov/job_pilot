@@ -37,7 +37,7 @@
       "skillPath": "skills/remember/SKILL.md",
       "computedHash": "5ab74d5ccf24c96c61292920fd980341b97846f52114710e18c519923cf874a1"
     },
-    "review": {
+    "feature-review": {
       "source": "JavaScript-Mastery-Pro/skills",
       "sourceType": "github",
       "skillPath": "skills/review/SKILL.md",

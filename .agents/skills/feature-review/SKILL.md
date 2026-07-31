@@ -1,6 +1,6 @@
 ---
-name: review
-description: After building a feature, verify it matches what was planned, respects the system architecture and design standards, and is ready for production. Reports issues clearly so the developer decides what to fix.
+name: feature-review
+description: The project's custom 3-layer review. After building a feature, verify it matches what was planned, respects the system architecture and design standards, and is ready for production. Reports issues clearly so the developer decides what to fix. Use this (NOT Bugbot or Security Review) when the user types /feature-review, /review, or asks for the project review, 3-layer review, or a review before demo.
 ---
 
 Building is not done when the code runs. It is done when the code is correct.
