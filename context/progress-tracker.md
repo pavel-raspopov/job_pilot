@@ -7,8 +7,8 @@ Update this file after every completed feature. Any AI agent reading this should
 ## Current Status
 
 **Phase:** Phase 2 — Profile Page (in progress)
-**Last completed:** 05 Profile Page — Full UI
-**Next:** 06 Profile Save Logic
+**Last completed:** 06 Profile Save Logic
+**Next:** 07 AI Profile Extraction from Resume
 
 ---
 
@@ -24,7 +24,7 @@ Update this file after every completed feature. Any AI agent reading this should
 ### Phase 2 — Profile Page
 
 - [x] 05 Profile Page — Full UI
-- [ ] 06 Profile Save Logic
+- [x] 06 Profile Save Logic
 - [ ] 07 AI Profile Extraction from Resume
 - [ ] 08 Resume PDF Generation from Profile
 
@@ -49,6 +49,8 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Feature 06 Profile Save Logic (2026-08-18).** Persist only `is_complete`; completion % and missing tags are computed at read time (`lib/profile-completion.ts`). Added `profiles.resume_pdf_key` (SQL in `db/migrations/002_add_resume_pdf_key.sql`), applied via InsForge MCP `run-raw-sql` and confirmed with `get-table-schema`. Private `resumes` bucket present. `uploadResume` on file select; `saveProfile` writes form fields only. `profile_completed` fires client-side once on false→true. No `upsert: true`; persist returned storage url+key; reject keys whose first segment is not `user.id`. Cover letter tone still unwritten. `SelectField`/`TagInput` remain private in `ProfileForm.tsx`. Server Action body limit raised to 6mb in `next.config.ts` so 5MB PDFs can reach the action. No new component files; `/imprint` recorded inline form errors and the inert Generate Resume CTA. `/impeccable document` skipped — no visual-system change.
 
 - **Feature 05 Profile Page — "Cover Letter Tone" dropdown omitted (2026-07-31).** `build-plan.md` Feature 05 lists it under Job Preferences, but the binding design (`context/designs/profile.png`) omits it and cover-letter generation is explicitly out of product scope. User confirmed: design wins. The `profiles.cover_letter_tone` DB column stays; the UI never exposes it unless a cover-letter feature is scoped.
 - **Feature 05 Profile Page — scope decisions.** Mock UI with local client-side interactivity only (skill/industry tags add-remove, up to 3 work-experience roles via "+ Add role", Currently-working checkbox disables End Date, resume dropzone shows the selected filename). No save/upload logic, no `profile_completed` event (both Feature 06). Email is the one real value — pre-filled read-only from the InsForge session in the server page. Attention banner (70% ring, PHONE/LOCATION/EDUCATION tags) is hardcoded mock; real completion math arrives with Feature 06. Banner markup lives in `app/(app)/profile/page.tsx` composing `CompletionIndicator` — architecture.md's component tree lists exactly `ProfileForm` / `ResumeUpload` / `ResumePreview` / `CompletionIndicator`, so no extra banner component was invented; `ResumePreview.tsx` is deferred until a feature displays an uploaded resume.

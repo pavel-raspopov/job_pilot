@@ -2,8 +2,11 @@
 
 import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { ChevronDown, Plus, X } from "lucide-react";
+import posthog from "posthog-js";
+import { saveProfile } from "@/actions/profile";
+import type { Profile, WorkExperienceRole } from "@/types";
 
-type WorkExperienceEntry = {
+type FormRole = {
   company: string;
   jobTitle: string;
   startDate: string;
@@ -14,6 +17,8 @@ type WorkExperienceEntry = {
 
 type Props = {
   email: string;
+  userId: string;
+  profile: Profile | null;
 };
 
 const MAX_ROLES = 3;
@@ -27,16 +32,72 @@ const LABEL_CLASS =
 const SECONDARY_BUTTON_CLASS =
   "rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-secondary focus:outline-none focus:ring-1 focus:ring-accent";
 
+const WORK_AUTHORIZATION_OPTIONS = [
+  { value: "citizen", label: "Citizen" },
+  { value: "permanent_resident", label: "Permanent Resident" },
+  { value: "visa_required", label: "Visa Required" },
+];
+
+const EXPERIENCE_LEVEL_OPTIONS = [
+  { value: "junior", label: "Junior" },
+  { value: "mid", label: "Mid" },
+  { value: "senior", label: "Senior" },
+  { value: "lead", label: "Lead" },
+];
+
+const REMOTE_PREFERENCE_OPTIONS = [
+  { value: "any", label: "Any" },
+  { value: "remote", label: "Remote" },
+  { value: "hybrid", label: "Hybrid" },
+  { value: "onsite", label: "Onsite" },
+];
+
+const DEGREE_OPTIONS = [
+  { value: "high_school", label: "High School" },
+  { value: "associate", label: "Associate" },
+  { value: "bachelors", label: "Bachelor's" },
+  { value: "masters", label: "Master's" },
+  { value: "phd", label: "PhD" },
+];
+
+function emptyRole(): FormRole {
+  return {
+    company: "",
+    jobTitle: "",
+    startDate: "",
+    endDate: "",
+    currentlyWorking: false,
+    responsibilities: "",
+  };
+}
+
+function rolesFromProfile(profile: Profile | null): FormRole[] {
+  const stored = profile?.work_experience ?? [];
+  if (stored.length === 0) {
+    return [emptyRole()];
+  }
+  return stored.map((role) => ({
+    company: role.company,
+    jobTitle: role.job_title,
+    startDate: role.start_date,
+    endDate: role.end_date ?? "",
+    currentlyWorking: role.currently_working,
+    responsibilities: role.responsibilities,
+  }));
+}
+
 function SelectField({
   id,
+  name,
   label,
   defaultValue,
   options,
 }: {
   id: string;
+  name: string;
   label: string;
   defaultValue: string;
-  options: string[];
+  options: { value: string; label: string }[];
 }) {
   return (
     <div>
@@ -46,12 +107,14 @@ function SelectField({
       <div className="relative">
         <select
           id={id}
+          name={name}
           defaultValue={defaultValue}
           className={`${INPUT_CLASS} cursor-pointer appearance-none pr-9`}
         >
+          <option value="">Select…</option>
           {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>
@@ -139,25 +202,16 @@ function TagInput({
   );
 }
 
-export function ProfileForm({ email }: Props) {
-  const [skills, setSkills] = useState<string[]>([
-    "React",
-    "TypeScript",
-    "Next.js",
-    "Tailwind CSS",
-  ]);
-  const [industries, setIndustries] = useState<string[]>([]);
-  const [roles, setRoles] = useState<WorkExperienceEntry[]>([
-    {
-      company: "Vercel",
-      jobTitle: "Frontend Engineer",
-      startDate: "2022-01",
-      endDate: "",
-      currentlyWorking: true,
-      responsibilities:
-        "Built Next.js features and optimized web vitals. Led a team of 3 developers.",
-    },
-  ]);
+export function ProfileForm({ email, userId, profile }: Props) {
+  const [skills, setSkills] = useState<string[]>(profile?.skills ?? []);
+  const [industries, setIndustries] = useState<string[]>(
+    profile?.industries ?? [],
+  );
+  const [roles, setRoles] = useState<FormRole[]>(() =>
+    rolesFromProfile(profile),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const addTag = (
     list: string[],
@@ -171,32 +225,46 @@ export function ProfileForm({ email }: Props) {
 
   const addRole = (): void => {
     if (roles.length < MAX_ROLES) {
-      setRoles([
-        ...roles,
-        {
-          company: "",
-          jobTitle: "",
-          startDate: "",
-          endDate: "",
-          currentlyWorking: false,
-          responsibilities: "",
-        },
-      ]);
+      setRoles([...roles, emptyRole()]);
     }
   };
 
-  const updateRole = (
-    index: number,
-    patch: Partial<WorkExperienceEntry>,
-  ): void => {
-    setRoles(
-      roles.map((role, i) => (i === index ? { ...role, ...patch } : role)),
-    );
+  const updateRole = (index: number, patch: Partial<FormRole>): void => {
+    setRoles(roles.map((role, i) => (i === index ? { ...role, ...patch } : role)));
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    // Feature 05 is mock UI only — save logic arrives with Feature 06.
+  const handleSubmit = async (
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> => {
     event.preventDefault();
+    setError(null);
+    setSaving(true);
+
+    const formData = new FormData(event.currentTarget);
+    formData.set("skills", JSON.stringify(skills));
+    formData.set("industries", JSON.stringify(industries));
+
+    const payloadRoles: WorkExperienceRole[] = roles.map((role) => ({
+      company: role.company,
+      job_title: role.jobTitle,
+      start_date: role.startDate,
+      end_date: role.currentlyWorking ? null : role.endDate,
+      currently_working: role.currentlyWorking,
+      responsibilities: role.responsibilities,
+    }));
+    formData.set("work_experience", JSON.stringify(payloadRoles));
+
+    const result = await saveProfile(formData);
+    setSaving(false);
+
+    if (!result.success) {
+      setError(result.error ?? "Failed to save profile");
+      return;
+    }
+
+    if (result.completedNow) {
+      posthog.capture("profile_completed", { userId });
+    }
   };
 
   return (
@@ -224,8 +292,9 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="full-name"
+                  name="full_name"
                   type="text"
-                  defaultValue="Faizan Ali"
+                  defaultValue={profile?.full_name ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
@@ -247,7 +316,9 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="phone"
+                  name="phone"
                   type="tel"
+                  defaultValue={profile?.phone ?? ""}
                   placeholder="+1 (555) 000-0000"
                   className={INPUT_CLASS}
                 />
@@ -258,7 +329,9 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="location"
+                  name="location"
                   type="text"
+                  defaultValue={profile?.location ?? ""}
                   placeholder="City, Country"
                   className={INPUT_CLASS}
                 />
@@ -269,8 +342,9 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="linkedin-url"
+                  name="linkedin_url"
                   type="url"
-                  defaultValue="https://linkedin.com/in/faizan"
+                  defaultValue={profile?.linkedin_url ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
@@ -280,16 +354,18 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="portfolio-url"
+                  name="portfolio_url"
                   type="url"
-                  defaultValue="https://github.com/jenastery"
+                  defaultValue={profile?.portfolio_url ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
               <SelectField
                 id="work-authorization"
+                name="work_authorization"
                 label="Work Authorization"
-                defaultValue="Citizen"
-                options={["Citizen", "Permanent Resident", "Visa Required"]}
+                defaultValue={profile?.work_authorization ?? ""}
+                options={WORK_AUTHORIZATION_OPTIONS}
               />
             </div>
           </fieldset>
@@ -305,17 +381,19 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="current-title"
+                  name="current_title"
                   type="text"
-                  defaultValue="Frontend Engineer"
+                  defaultValue={profile?.current_title ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <SelectField
                   id="experience-level"
+                  name="experience_level"
                   label="Experience Level"
-                  defaultValue="Junior"
-                  options={["Junior", "Mid", "Senior", "Lead"]}
+                  defaultValue={profile?.experience_level ?? ""}
+                  options={EXPERIENCE_LEVEL_OPTIONS}
                 />
                 <div>
                   <label htmlFor="years-experience" className={LABEL_CLASS}>
@@ -323,9 +401,15 @@ export function ProfileForm({ email }: Props) {
                   </label>
                   <input
                     id="years-experience"
+                    name="years_experience"
                     type="number"
                     min={0}
-                    defaultValue={4}
+                    defaultValue={
+                      profile?.years_experience === null ||
+                      profile?.years_experience === undefined
+                        ? ""
+                        : profile.years_experience
+                    }
                     className={INPUT_CLASS}
                   />
                 </div>
@@ -494,15 +578,10 @@ export function ProfileForm({ email }: Props) {
             <div className="clear-left grid grid-cols-1 gap-4 sm:grid-cols-2">
               <SelectField
                 id="highest-degree"
+                name="education_degree"
                 label="Highest Degree"
-                defaultValue="High School"
-                options={[
-                  "High School",
-                  "Associate",
-                  "Bachelor's",
-                  "Master's",
-                  "PhD",
-                ]}
+                defaultValue={profile?.education?.degree ?? ""}
+                options={DEGREE_OPTIONS}
               />
               <div>
                 <label htmlFor="field-of-study" className={LABEL_CLASS}>
@@ -510,8 +589,9 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="field-of-study"
+                  name="education_field"
                   type="text"
-                  defaultValue="Computer Science"
+                  defaultValue={profile?.education?.field ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
@@ -521,7 +601,9 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="institution"
+                  name="education_institution"
                   type="text"
+                  defaultValue={profile?.education?.institution ?? ""}
                   placeholder="E.g. State University"
                   className={INPUT_CLASS}
                 />
@@ -532,8 +614,10 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="graduation-year"
+                  name="education_year"
                   type="text"
                   inputMode="numeric"
+                  defaultValue={profile?.education?.year ?? ""}
                   placeholder="YYYY"
                   className={INPUT_CLASS}
                 />
@@ -552,17 +636,19 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="job-titles-seeking"
+                  name="job_titles_seeking"
                   type="text"
-                  defaultValue="Frontend Engineer, React Developer"
+                  defaultValue={profile?.job_titles_seeking.join(", ") ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <SelectField
                   id="remote-preference"
+                  name="remote_preference"
                   label="Remote Preference"
-                  defaultValue="Any"
-                  options={["Any", "Remote", "Hybrid", "Onsite"]}
+                  defaultValue={profile?.remote_preference ?? ""}
+                  options={REMOTE_PREFERENCE_OPTIONS}
                 />
                 <div>
                   <label htmlFor="salary-expectation" className={LABEL_CLASS}>
@@ -570,7 +656,9 @@ export function ProfileForm({ email }: Props) {
                   </label>
                   <input
                     id="salary-expectation"
+                    name="salary_expectation"
                     type="text"
+                    defaultValue={profile?.salary_expectation ?? ""}
                     placeholder="E.g. $120k+"
                     className={INPUT_CLASS}
                   />
@@ -582,7 +670,9 @@ export function ProfileForm({ email }: Props) {
                 </label>
                 <input
                   id="preferred-locations"
+                  name="preferred_locations"
                   type="text"
+                  defaultValue={profile?.preferred_locations.join(", ") ?? ""}
                   placeholder="E.g. New York, London"
                   className={INPUT_CLASS}
                 />
@@ -592,11 +682,17 @@ export function ProfileForm({ email }: Props) {
         </div>
 
         <div className="border-t border-border pt-6">
+          {error ? (
+            <p className="mb-3 text-sm text-error" role="alert">
+              {error}
+            </p>
+          ) : null}
           <button
             type="submit"
-            className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 focus:outline-none focus:ring-1 focus:ring-accent"
+            disabled={saving}
+            className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Save Profile
+            {saving ? "Saving…" : "Save Profile"}
           </button>
         </div>
       </form>

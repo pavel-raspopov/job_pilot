@@ -127,31 +127,35 @@ const { error } = await insforge
 ### Storage
 
 ```typescript
-// Upload file
 const { data, error } = await insforge.storage
   .from("resumes")
-  .upload(`${userId}/resume.pdf`, fileBuffer, {
-    contentType: "application/pdf",
-    upsert: true, // overwrites existing file
-  });
+  .upload(`${userId}/resume.pdf`, file);
 
-// Get public URL
-const { data } = insforge.storage
-  .from("resumes")
-  .getPublicUrl(`${userId}/resume.pdf`);
+if (error || !data) {
+  // handle error
+}
 
-const url = data.publicUrl;
+// Persist BOTH — url is for display, key is required for download/delete
+await insforge.database
+  .from("profiles")
+  .update({
+    resume_pdf_url: data.url,
+    resume_pdf_key: data.key,
+  })
+  .eq("id", userId);
 ```
 
 **Storage paths:**
 
-- Base resume: `resumes/{user_id}/resume.pdf`
+- Base resume object key: `{user_id}/resume.pdf` in the `resumes` bucket
+- Enforce `{user_id}/` as the first path segment on the server; reject a returned key that does not match
 
 **Rules:**
 
-- Always use `upsert: true` for base resume uploads — overwrites existing file
-- Always save the public URL back to the DB after upload
-- Never write files to disk — always upload buffer directly to storage
+- Do not pass `upsert: true` — the SDK replaces an existing key in place (standard PUT)
+- Always persist the returned `url` and `key` on the profile row
+- Never write files to disk — upload the `File` / `Blob` directly
+- Path isolation is server-mediated (private bucket; prefix check on the returned key)
 
 ---
 
@@ -645,10 +649,9 @@ const buffer = await renderToBuffer(<ResumePDF profile={profile} />)
 // Upload directly to InsForge Storage
 await insforge.storage
   .from('resumes')
-  .upload(`${userId}/resume.pdf`, buffer, {
-    contentType: 'application/pdf',
-    upsert: true
-  })
+  .upload(`${userId}/resume.pdf`, buffer)
+
+// Persist data.url and data.key on the profile row
 ```
 
 **Supported CSS properties:**

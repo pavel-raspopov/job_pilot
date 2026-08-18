@@ -229,6 +229,7 @@ URL saved to profiles table
 | portfolio_url       | text        |                                              |
 | work_authorization  | text        | citizen / permanent_resident / visa_required |
 | resume_pdf_url      | text        | InsForge Storage URL of current resume       |
+| resume_pdf_key      | text        | InsForge Storage key (download/delete)       |
 | is_complete         | boolean     | True when all required fields filled         |
 | created_at          | timestamptz |                                              |
 | updated_at          | timestamptz |                                              |
