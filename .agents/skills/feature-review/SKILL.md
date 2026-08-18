@@ -7,7 +7,7 @@ Building is not done when the code runs. It is done when the code is correct.
 
 AI moves fast. Fast means things get built that work on the surface but drift from the architecture, violate the design system, or miss edge cases that matter. This skill catches those things before they compound into bigger problems.
 
-Run this after every feature. Before you move on.
+Run this after every feature. Before you move on. After `/opsx-apply` and before `/opsx-archive`.
 
 ## What This Skill Does Not Do
 
@@ -21,11 +21,16 @@ Before reviewing anything, establish the benchmark.
 
 Read in this order:
 
-- The implementation plan from `/architect` if one exists
+- The OpenSpec change under `openspec/changes/<id>/` if one exists — `proposal.md`, `specs/`, `design.md`, `tasks.md`
+- The implementation plan from `/architect` if one exists and no OpenSpec change covers this work
 - The feature description or task that was given
 - Any relevant context files — architecture boundaries, code standards, design rules
 
 If no plan exists, ask the developer to describe what the feature was supposed to do before reviewing. You cannot verify correctness without knowing what correct looks like.
+
+**Single feature (default):** one OpenSpec change or architect plan, one feature, this template as written.
+
+**Phase or program review:** when the user asks to review a phase, all progress so far, or several completed items, do not force a single-feature report. Use the build plan and progress tracker as the benchmark. Report each completed item briefly (Layers 1–3), then one cross-cutting summary.
 
 ---
 
@@ -40,6 +45,7 @@ Check:
 - Every part of the feature description — is it all there?
 - The decisions made during planning — are they reflected in the code?
 - The scope — did the implementation stay within bounds or add things that were not asked for?
+- Leftover stub copy — search product UI (not docs) for phrases like "not yet", "not connected", "coming soon". A shipped path whose user-facing copy still describes the previous stub is **Important**, even when the new code path works.
 
 Flag anything that was planned but missing. Flag anything that was built but not planned.
 
@@ -62,6 +68,7 @@ Check:
 - Edge cases — empty states, loading states, missing data — are these handled?
 - Console errors — any errors or warnings in the browser or terminal?
 - Obvious bugs — anything that would clearly break for a real user?
+- Inferred orphans / missing cleanup — a missing API call in source is not proof of a user-visible bug. Confirm against official docs and the path the user actually ran before calling it Important. Prefer an existing delete helper over a new job or trigger.
 
 ---
 
@@ -104,6 +111,8 @@ Wait for the developer to:
 - Confirm everything is resolved and ready to move on
 
 The developer owns the quality decision. You inform it.
+
+After they triage (keep / skip / Important only / named Minors), that list is the implementation scope. Do not fix remaining Minors "while you are here" unless they block the named work.
 
 ---
 

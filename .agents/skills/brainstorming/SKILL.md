@@ -1,7 +1,17 @@
 ---
 name: brainstorming
-description: "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+description: "Superseded by OpenSpec (`/opsx-explore` / `/opsx-propose`). Do not invoke unless the user explicitly asks for Superpowers plans."
 ---
+
+# SUPERSEDED
+
+This skill is retired from the default JobPilot path. Use OpenSpec instead:
+
+- Explore: `/opsx-explore`
+- Propose: `/opsx-propose`
+- Apply: `/opsx-apply`
+
+Only follow the rest of this file if the user explicitly asks for Superpowers plans.
 
 # Brainstorming Ideas Into Designs
 

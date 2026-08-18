@@ -46,7 +46,7 @@ Based on the description, determine which of three failure modes this is.
 **What it means:**
 This is a normal bug. It has a root cause that can be found and fixed precisely.
 
-**Response:** Targeted fix — go to Step 3A.
+**Response:** Targeted fix — invoke `systematic-debugging`, then go to Step 3A.
 
 ---
 

@@ -169,6 +169,20 @@ The registry grows as the project grows. The more components are imprinted, the 
 
 ---
 
+## First UI ship — pair with `/impeccable document`
+
+After the **first real UI** ships (or after a major visual-system change), do not leave a seed `DESIGN.md` or a free-form registry note as the only record.
+
+In the same session (or immediately after):
+
+1. Run `/impeccable document` (scan mode) — refresh root `DESIGN.md` and `.impeccable/design.json` from code; write/update the surface brief for the shipped route.
+2. Run `/imprint` (or `/imprint audit` then confirm) — establish or refresh the **Baseline** table and per-component property tables in `ui-registry.md` using the imprint entry format.
+3. Sync companion docs (`ui-rules.md`, `ui-tokens.md`) only where the built code changed the wiring.
+
+Ad-hoc bullet lists in the registry are not enough — later agents match the table format and the DESIGN.md / sidecar pair.
+
+---
+
 ## The Rule
 
 Build a component. Run `/imprint`. Move on.

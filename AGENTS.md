@@ -1,5 +1,5 @@
 ---
-description: Instructions building apps with MCP
+description: Instructions building JobPilot with AI coding assistants
 globs: *
 alwaysApply: true
 ---
@@ -12,188 +12,81 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 <!-- END:nextjs-agent-rules -->
 
-## Context Efficiency & Sub-Agent Execution
+## Stack
 
-1. Targeted Context Loading:
-   - Do not read documentation files (context/*) "just in case".
-   - Read UI or architecture rule files ONLY if the current subtask explicitly requires it.
+- **Framework:** Next.js 16 App Router, React 19, TypeScript strict
+- **Styling:** Tailwind CSS v4 with tokens in `app/globals.css` `@theme` — never hardcoded hex or raw Tailwind color classes
+- **Backend:** InsForge (auth, Postgres, storage, functions) — not Supabase
+- **Analytics:** PostHog
+- **Jobs:** Adzuna API
 
-2. Concise Reporting:
-   - When returning results to the main agent, provide a brief summary (3–5 bullet points): what was done, which files were modified, and the verification status.
-   - Do not recap your entire thought process or step-by-step reasoning.
+InsForge app code: use InsForge MCP (`fetch-docs` / `fetch-sdk-docs`) and `~/.claude/skills/insforge`. Infrastructure (SQL, buckets, functions): `insforge-cli`. Project patterns: `context/library-docs.md`.
 
-3. Ban on Exhaustive Searches:
-   - If you cannot find a required file within 2–3 search attempts, stop and ask the main agent or user instead of scanning the entire repository.
+## Session start
 
-## Read Before Anything Else
+1. `/task-observer` — silent observation-log setup
+2. `/remember restore` — if continuing prior work
+3. `/using-superpowers` — route to the skill below
 
-Read in this exact order before any implementation:
+## Context loading (tiered)
 
-1. context/project-overview.md
-2. context/architecture.md
-3. context/ui-tokens.md
-4. context/ui-rules.md
-5. context/ui-registry.md
-6. context/code-standards.md
-7. context/library-docs.md
-8. context/build-plan.md
-9. context/progress-tracker.md
+Do not read every `context/` file by default. Do not read them "just in case."
 
-## Rules That Never Change
+| When | Read |
+| --- | --- |
+| Any implementation | `context/progress-tracker.md` and the **current feature section** of `context/build-plan.md` |
+| Structure, API, or DB | also `context/architecture.md` and `context/library-docs.md` |
+| UI | also `context/ui-tokens.md`, `context/ui-rules.md`, `context/ui-registry.md` |
+| Implementation review | also `context/code-standards.md` |
+| Ambiguous requirements | also `context/project-overview.md` (scope / out-of-scope) |
 
-- Never use hardcoded hex values or raw Tailwind color classes
-- Update `progress-tracker.md` and `ui-registry.md` after every feature
-- Before any third party library — load its installed skill first,
-  then read `context/library-docs.md` for project-specific rules
-- If the same problem persists after one corrective prompt —
-  stop immediately and run /recover
+Sub-agents: same rules. Report back in 3–5 bullets (what changed, files, verification). Stop after 2–3 search attempts and ask rather than scanning the whole repo.
 
-## Available Skills
+## Feature workflow
 
-- `/architect` — before any complex feature. Think before building.
-- `/imprint` — after any new UI component. Capture patterns.
-- `/feature-review` — the project's custom 3-layer review. Run before demo or when something feels off. Always prefer this over Bugbot / Security Review subagents when the user asks for a "review".
-- `/recover` — when something breaks after one failed correction.
-- `/remember save` — when a feature spans multiple sessions.
-- `/remember restore` — when returning after a multi-session feature.
-- `/using-superpowers` – before executing any task. Check and load relevant skills.
-- `/brainstorming` – before any new feature or UI. Explore requirements & design.
-- `/writing-plans` – before implementing complex features. Create step-by-step specs.
-- `/executing-plans` – when executing a step-by-step implementation plan.
-- `/test-driven-development` – when writing new code or fixes. Write failing tests first.
-- `/systematic-debugging` – when facing bugs or test failures. Find root cause first.
-- `/verification-before-completion` – before marking task complete. Test, build, and validate.
-- `/task-observer` – invoke at the start of every task-oriented session. Watches the session for skill improvement opportunities and logs observations.
-- `/impeccable <command>` – design guidance for frontend work (`init`, `audit`, `critique`, `polish`, `shape`, `animate`, and more). Run `/impeccable init` once to set up design context; type `/impeccable` alone to see all 23 commands.
-
-# InsForge SDK Documentation - Overview
-
-## What is InsForge?
-
-Backend-as-a-service (BaaS) platform providing:
-
-- **Database**: PostgreSQL with PostgREST API
-- **Authentication**: Email/password + OAuth (Google, GitHub)
-- **Storage**: File upload/download
-- **AI**: OpenRouter key provisioning and model catalog for direct OpenAI-compatible integrations
-- **Functions**: Serverless function deployment
-- **Realtime**: WebSocket pub/sub (database + client events)
-
-## Installation
-
-The following is a step-by-step guide to installing and using the InsForge TypeScript SDK for Web applications. If you are building other types of applications, please refer to:
-- [Swift SDK documentation](/sdks/swift/overview) for iOS, macOS, tvOS, and watchOS applications.
-- [Kotlin SDK documentation](/sdks/kotlin/overview) for Android applications.
-- [REST API documentation](/sdks/rest/overview) for direct HTTP API access.
-
-### 🚨 CRITICAL: Follow these steps in order
-
-### Step 1: Download Template
-
-Use the `download-template` MCP tool to create a new project with your backend URL and anon key pre-configured.
-
-### Step 2: Install SDK
-
-```bash
-npm install @insforge/sdk@latest
-```
-
-### Step 3: Create SDK Client
-
-You must create a client instance using `createClient()` with your base URL and anon key:
-
-```javascript
-import { createClient } from '@insforge/sdk';
-
-const client = createClient({
-  baseUrl: 'https://your-app.region.insforge.app',  // Your InsForge backend URL
-  anonKey: 'your-anon-key-here'       // Get this from backend metadata
-});
+OpenSpec owns agree-before-build, implement, and archive. Do not also run `/brainstorming`, `/writing-plans`, or `/executing-plans` unless the user explicitly asks for Superpowers plans.
 
 ```
+/opsx-explore (optional) → /opsx-propose → /opsx-apply
+  → /imprint if new UI
+  → verification-before-completion (lint + build + manual; show output)
+  → /feature-review
+  → /opsx-archive
+  → /remember save before git commit
+```
 
-**API BASE URL**: Your API base URL is `https://your-app.region.insforge.app`.
+`/architect` runs **inside** explore/propose for language alignment and source reconciliation (build-plan vs design vs product scope). It is not a second plan format. `/impeccable shape` is for open visual decisions only.
 
-## Getting Detailed Documentation
+Do not back-fill `openspec/specs/` from the 17-feature build-plan. Specs grow from real changes.
 
-### 🚨 CRITICAL: Always Fetch Documentation Before Writing Code
+This repo has **no test runner**. Verify with `npm run lint`, `npm run build`, and a manual click-through. Do not add a test framework unasked.
 
-InsForge provides official SDKs and REST APIs, use them to interact with InsForge services from your application code.
+## Skill routing
 
-- [TypeScript SDK](/sdks/typescript/overview) - JavaScript/TypeScript
-- [Swift SDK](/sdks/swift/overview) - iOS, macOS, tvOS, and watchOS
-- [Kotlin SDK](/sdks/kotlin/overview) - Android and Kotlin Multiplatform
-- [REST API](/sdks/rest/overview) - Direct HTTP API access
+One job each. If two skills seem to apply, this table wins.
 
-Before writing or editing any InsForge integration code, you **MUST** call the `fetch-docs` or `fetch-sdk-docs` MCP tool to get the latest SDK documentation. This ensures you have accurate, up-to-date implementation patterns.
+- `/opsx-explore` — think through an area before committing to a change
+- `/opsx-propose` — write proposal, delta specs, design, and tasks under `openspec/changes/`
+- `/opsx-apply` — implement the change's `tasks.md`
+- `/opsx-archive` — merge specs and archive the change
+- `/architect` — source reconciliation and language alignment during explore/propose
+- `/impeccable <command>` — visual design (`init`, `shape`, `document`, `polish`, …)
+- `/imprint` — after any new UI component, write `context/ui-registry.md`. After first real UI (or a major visual-system change), pair with `/impeccable document`
+- `/feature-review` — 3-layer review after apply, before archive. Prefer this over Bugbot / Security Review when the user asks for a "review"
+- `/test-driven-development` — only when a test runner exists; otherwise follow the plan's lint/build/manual verify
+- `/verification-before-completion` — before claiming done; show command output
+- `/systematic-debugging` — bugs and unexpected behavior; root cause first
+- `/recover` — after one failed correction loop; Failure Mode 1 then invokes systematic-debugging
+- `/remember save` — end of session **and always before a git commit** (include `memory.md`). See `.cursor/rules/memory-before-commit.mdc`
+- `/remember restore` — returning after a multi-session feature
+- `/using-superpowers` — skill discovery at session start
+- `/task-observer` — start of every task-oriented session; log skill-improvement observations
+- PostHog App Router — `.claude/skills/integration-nextjs-app-router`
 
-### Use the InsForge `fetch-docs` MCP tool to get specific SDK documentation:
+## Rules that never change
 
-Available documentation types:
-
-- `"instructions"` - Essential backend setup (START HERE)
-- `"real-time"` - Real-time pub/sub (database + client events) via WebSockets
-- `"db-sdk-typescript"` - Database operations with TypeScript SDK
-- **Authentication** - Choose based on implementation:
-  - `"auth-sdk-typescript"` - TypeScript SDK methods for custom auth flows
-  - `"auth-components-react"` - Pre-built auth UI for React+Vite (single-page app)
-  - `"auth-components-react-router"` - Pre-built auth UI for React(Vite+React Router) (multi-page app)
-  - `"auth-components-nextjs"` - Pre-built auth UI for Next.js (SSR app)
-- `"storage-sdk"` - File storage operations
-- `"functions-sdk"` - Serverless functions invocation
-- `"ai-integration-sdk"` - AI integration with the provisioned OpenRouter key and OpenAI SDK
-- `"deployment"` - Deploy frontend applications via MCP tool
-- `"payments"` - Stripe Checkout, Billing Portal, webhook projections, and fulfillment patterns
-
-These docs are mostly for the TypeScript SDK. For other languages, you can also use the `fetch-sdk-docs` MCP tool to get specific documentation.
-
-### Use the InsForge `fetch-sdk-docs` MCP tool to get specific SDK documentation
-
-You can fetch SDK documentation using the `fetch-sdk-docs` MCP tool with a specific feature type and language.
-
-Available feature types:
-- `db` - Database operations
-- `storage` - File storage operations
-- `functions` - Serverless functions invocation
-- `auth` - User authentication
-- `ai` - AI integration with the provisioned OpenRouter key and OpenAI SDK
-- `realtime` - Real-time pub/sub (database + client events) via WebSockets
-- `payments` - Stripe Checkout and Billing Portal with webhook-based fulfillment
-
-Available languages:
-- `typescript` - JavaScript/TypeScript SDK
-- `swift` - Swift SDK (for iOS, macOS, tvOS, and watchOS)
-- `kotlin` - Kotlin SDK (for Android and JVM applications)
-- `rest-api` - REST API
-
-Payments currently has TypeScript SDK docs only. Use the Payments API reference for non-TypeScript clients.
-
-## When to Use SDK vs MCP Tools
-
-### Always SDK for Application Logic:
-
-- Authentication (register, login, logout, profiles)
-- Database CRUD (select, insert, update, delete)
-- Storage operations (upload, download files)
-- AI integration via the provisioned OpenRouter key with the OpenAI SDK or OpenRouter HTTP API
-- Serverless function invocation
-- Payments checkout and customer portal session creation
-
-### Use MCP Tools for Infrastructure:
-
-- Project scaffolding (`download-template`) - Download starter templates with InsForge integration
-- Backend setup and metadata (`get-backend-metadata`)
-- Database schema management (`run-raw-sql`, `get-table-schema`)
-- Storage bucket creation (`create-bucket`, `list-buckets`, `delete-bucket`)
-- Serverless function deployment (`create-function`, `update-function`, `delete-function`)
-- Frontend deployment (`create-deployment`) - Deploy frontend apps to InsForge hosting
-
-## Important Notes
-
-- For auth: use `auth-sdk` for custom UI, or framework-specific components for pre-built UI
-- SDK returns `{data, error}` structure for all operations
-- Database inserts require array format: `[{...}]`
-- Serverless functions have one endpoint and do not support nested route paths
-- Storage: Upload files to buckets, store URLs in database
-- AI integrations should call OpenRouter directly with `baseURL: "https://openrouter.ai/api/v1"` and a server-side `OPENROUTER_API_KEY`
-- **EXTRA IMPORTANT**: Use Tailwind CSS 3.4 (do not upgrade to v4). Lock these dependencies in `package.json`
+- Never use hardcoded hex values or raw Tailwind color classes — tokens from `context/ui-tokens.md`
+- Update `context/progress-tracker.md` and `context/ui-registry.md` after every feature
+- Before any third-party library: load its installed skill first, then `context/library-docs.md`
+- If the same problem persists after one corrective prompt — stop and run `/recover`
+- Never persist secrets (keys, tokens, connection strings) in `memory.md`, git, or logs

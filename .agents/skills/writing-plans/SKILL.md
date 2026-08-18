@@ -1,7 +1,13 @@
 ---
 name: writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code
+description: "Superseded by OpenSpec (`/opsx-propose`). Do not invoke unless the user explicitly asks for Superpowers plans."
 ---
+
+# SUPERSEDED
+
+This skill is retired from the default JobPilot path. Use OpenSpec `/opsx-propose` to write proposal, specs, design, and tasks under `openspec/changes/`.
+
+Only follow the rest of this file if the user explicitly asks for Superpowers plans.
 
 # Writing Plans
 

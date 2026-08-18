@@ -19,15 +19,15 @@ This is not negotiable. You cannot rationalize your way out of this.
 
 **Invoke relevant or requested skills BEFORE any response or action** — including clarifying questions, exploring the codebase, or checking files. If it turns out wrong for the situation, you don't have to use it.
 
-**Before entering plan mode:** if you haven't already brainstormed, invoke the brainstorming skill first.
+**Before entering plan mode:** if you haven't already explored or proposed via OpenSpec (`/opsx-explore` or `/opsx-propose`), do that first. Do not invoke brainstorming, writing-plans, or executing-plans unless the user explicitly asks for Superpowers plans.
 
 Then announce "Using [skill] to [purpose]" and follow the skill exactly. If it has a checklist, create a todo per item.
 
 ## Skill Priority
 
-When multiple skills apply, process skills come first — they set the approach, then implementation skills (frontend-design, etc.) carry it out. Brainstorming and systematic-debugging are Superpowers' most common process skills, but the rule holds for any of them.
+When multiple skills apply, process skills come first — they set the approach, then implementation skills (frontend-design, etc.) carry it out. OpenSpec and systematic-debugging are this project's most common process skills, but the rule holds for any of them.
 
-- "Let's build X" → superpowers:brainstorming first, then implementation skills.
+- "Let's build X" → `/opsx-explore` (if the approach is unclear) then `/opsx-propose`, then `/opsx-apply`. Invoke `/architect` inside explore/propose for JobPilot source reconciliation — not as a competing plan format.
 - "Fix this bug" → superpowers:systematic-debugging first, then domain skills.
 
 ## Red Flags

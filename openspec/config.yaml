@@ -1,0 +1,76 @@
+schema: spec-driven
+
+context: |
+  JobPilot — AI job-search web app. Next.js 16 App Router, React 19, TypeScript strict.
+  Styling: Tailwind CSS v4 with design tokens in app/globals.css `@theme`. Never use
+  hardcoded hex values or raw Tailwind color classes (bg-blue-500, text-gray-600, etc.).
+  Backend: InsForge (PostgreSQL/PostgREST, Auth, Storage, Functions) — not Supabase.
+  Analytics: PostHog. Job listings: Adzuna API.
+
+  Source of truth for product work: context/ files and design assets under context/designs/.
+  Do not back-fill openspec/specs/ from the 17-feature build-plan. Specs grow from real
+  changes. Treat context/build-plan.md, context/architecture.md, and context/project-overview.md
+  as source material for the change you are about to make.
+
+  Tiered context loading (do not read every context file by default):
+  - Always: context/progress-tracker.md and the current feature section of context/build-plan.md
+  - Structure / API / DB: also context/architecture.md and context/library-docs.md
+  - UI: also context/ui-tokens.md, context/ui-rules.md, context/ui-registry.md
+  - Code conventions: context/code-standards.md when writing or reviewing implementation
+  - Product scope / out-of-scope: context/project-overview.md when a requirement is ambiguous
+
+  Source reconciliation (architect Step 1b): if build-plan, a design PNG, and product scope
+  disagree, name the conflict, recommend a resolution (design asset + product scope win by
+  default), and wait for the developer. Do not silently follow either document.
+
+  Verification: this repo has no test runner. Verify with `npm run lint`, `npm run build`,
+  and a manual click-through of the changed path. Do not add Vitest/Jest/Playwright unasked.
+  Do not claim done without showing command output.
+
+  Secrets are human gates: check that the env *name* exists (never print, log, or commit the
+  value). Document the dashboard path. Do not claim end-to-end success if InsForge / OpenRouter /
+  Adzuna / PostHog secrets are missing.
+
+  After new UI: /imprint (and /impeccable document after first real UI or a major visual-system
+  change). After apply: /feature-review, then /opsx-archive. Save memory.md before every git commit.
+
+  InsForge app code: use InsForge MCP fetch-docs/fetch-sdk-docs and ~/.claude/skills/insforge
+  (or insforge-cli for infrastructure). Project-specific patterns: context/library-docs.md.
+
+  PostHog App Router: .claude/skills/integration-nextjs-app-router.
+
+rules:
+  proposal:
+    - Reconcile context/build-plan.md, design assets under context/designs/, and product scope in context/project-overview.md. Surface conflicts as a developer decision; do not silently pick a side.
+    - Include a Non-goals section. Scope is sacred — only the current feature.
+    - Name verification: npm run lint, npm run build, manual click-through. Do not propose adding a test framework.
+    - Name secret-dependent steps as human gates (env name + dashboard path, no E2E claim if missing).
+    - Invoke /architect during explore/propose for language alignment and Step 1b source reconciliation. Do not write a competing Superpowers plan under docs/superpowers/.
+  specs:
+    - Use WHEN/THEN scenarios (Given/When/Then is fine). Behavior-first, scoped to this change only.
+    - Reference existing patterns in the codebase before inventing new ones.
+    - Never specify raw Tailwind color classes or hardcoded hex; tokens only.
+  design:
+    - State which files are in scope and which are frozen. Frozen files: one-line type/compile fixes only if a named verify command fails; no behavior changes.
+    - Server Components by default; "use client" only for state/effects/browser APIs.
+    - InsForge: SDK for app logic (auth, CRUD, storage, functions); MCP for infrastructure (schema, buckets, functions deploy). Inserts are arrays. Returns { data, error }.
+    - UI-heavy changes: /impeccable shape before implementation if a visual decision is still open.
+  tasks:
+    - Bite-sized steps with exact file paths. Each task names how to verify (lint, build, or a specific manual path).
+    - If there is no test runner, do not write red-green test steps. Use the project's verify commands.
+    - After UI tasks: /imprint. After all tasks: verification-before-completion, then /feature-review.
+
+operations:
+  apply:
+    guidance:
+      - Follow openspec/changes/<id>/tasks.md in order. Do not expand scope.
+      - Frozen file vs verify: if a named verify command fails in a frozen file, a one-line type/compile fix is in scope; behavior changes are not. Record the exception.
+      - Do not add a test framework. Run npm run lint and npm run build. Show the output. Do not claim done without it.
+      - Secret-dependent steps: check the env name is present; never print the value; leave human-only todos pending.
+      - After new UI components, run /imprint before marking UI tasks complete.
+  archive:
+    guidance:
+      - Run /feature-review before archiving. Honor the developer's triage (Important + named Minors only).
+      - Grep product UI (not docs) for leftover stub copy: "not yet", "not connected", "coming soon".
+      - Keep the completion summary concise. Update context/progress-tracker.md and context/ui-registry.md when the feature ships.
+      - Do not bulk-convert unrelated build-plan features into openspec/specs/.

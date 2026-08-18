@@ -1,7 +1,13 @@
 ---
 name: executing-plans
-description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
+description: "Superseded by OpenSpec (`/opsx-apply`). Do not invoke unless the user explicitly asks for Superpowers plans."
 ---
+
+# SUPERSEDED
+
+This skill is retired from the default JobPilot path. Use OpenSpec `/opsx-apply` to implement `openspec/changes/<id>/tasks.md`.
+
+Only follow the rest of this file if the user explicitly asks for Superpowers plans.
 
 # Executing Plans
 

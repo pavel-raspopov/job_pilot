@@ -1,6 +1,6 @@
 ---
 name: test-driven-development
-description: Use when implementing any feature or bugfix, before writing implementation code
+description: "Use when implementing a feature or bugfix with a test runner. If this repo has no test runner and the plan names lint/build/manual verify, follow those commands instead — do not add a test framework unasked."
 ---
 
 # Test-Driven Development (TDD)
@@ -26,7 +26,11 @@ Write the test first. Watch it fail. Write minimal code to pass.
 - Generated code
 - Configuration files
 
-Thinking "skip TDD just this once"? Stop. That's rationalization.
+**Project / plan verification (do not ask again if already specified):**
+- The repo has no test runner **and** the current plan or project docs name how to verify (lint, build, manual click-through): do **not** add a test framework unasked. Follow those verify commands. User instructions and the written plan (including OpenSpec `tasks.md`) outrank the Iron Law.
+- When TDD is waived, the plan must still name drift nets: files in scope, files frozen, extra caution on shared modules, lint + build before claiming done. A missing runner is not permission to skip verification.
+
+Thinking "skip TDD just this once"? Stop. That's rationalization — unless the exception above already applies.
 
 ## The Iron Law
 
@@ -36,7 +40,7 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 
 Write code before the test? Delete it. Start over.
 
-**No exceptions:**
+**No exceptions** (unless the project/plan verification exception in When to Use already applies):
 - Don't keep it as "reference"
 - Don't "adapt" it while writing tests
 - Don't look at it
@@ -368,4 +372,4 @@ Production code → test exists and failed first
 Otherwise → not TDD
 ```
 
-No exceptions without your human partner's permission.
+No exceptions without your human partner's permission — unless the project/plan verification exception already applies.

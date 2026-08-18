@@ -1,0 +1,14 @@
+---
+description: Always save session memory before creating a git commit
+alwaysApply: true
+---
+
+# Memory before commit
+
+When the developer asks to commit (or you are about to create a commit for finished feature work):
+
+1. Run `/remember save` **first** — write/update `memory.md` (confirm overwrite if it already exists; never store secrets).
+2. Stage `memory.md` with the feature changes when the save reflects this session’s work.
+3. **Then** create the git commit.
+
+Do not commit feature work and leave `memory.md` for a follow-up unless the developer explicitly says to skip memory.

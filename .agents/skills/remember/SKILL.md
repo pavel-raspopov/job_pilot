@@ -5,7 +5,7 @@ description: Save what matters at the end of a session so the next session picks
 
 AI has no memory between sessions. Every new session starts blank. This skill fixes that.
 
-Run it at the end of a session to save. Run it at the start of a new session to restore. That is all it does — but done consistently, it means nothing ever gets lost.
+Run it at the end of a session to save. Run it at the start of a new session to restore. Also run **save before every git commit** so `memory.md` is staged with the work (project rule: `.cursor/rules/memory-before-commit.mdc`). That is all it does — but done consistently, it means nothing ever gets lost.
 
 ## Security Boundary
 

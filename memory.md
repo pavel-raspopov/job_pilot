@@ -1,42 +1,37 @@
-# Memory — Feature 05 Profile Page UI
+# Memory — OpenSpec AI workflow
 
-Last updated: 7/31/2026, 6:16 PM
+Last updated: 8/18/2026, 5:35 PM
 
 ## What was built
 
-- **Feature 05 Profile Page — Full UI complete** (mock data + local client interactivity; no save/upload logic).
-  - `app/(app)/profile/page.tsx` — async server page; session email from InsForge; attention banner (PHONE/LOCATION/EDUCATION + 70% ring) + `ResumeUpload` + `ProfileForm`.
-  - `components/profile/CompletionIndicator.tsx` — SVG error-colored completion ring.
-  - `components/profile/ResumeUpload.tsx` — dashed dropzone, Select Resume, Generate Resume from Profile (inert).
-  - `components/profile/ProfileForm.tsx` — full form sections matching `context/designs/profile.png`; skill/industry tags; up to 3 work roles; Currently-working disables End Date; Save Profile inert.
-- Docs: `context/progress-tracker.md` (05 done, next 06), `context/ui-registry.md` (profile patterns).
-- Housekeeping: refreshed `.impeccable/design.json` sidecar; task-observer observations 1–3 ACTIONED (impeccable `--target` quoting; architect Step 1b plan-vs-design; imprint Step 2b verify capability claims). Created `skill-observations/` log.
-- `/feature-review` run; Important radius drift fixed (`rounded-lg` → `rounded-md` on dropzone + nested role cards).
+- Adopted OpenSpec (CLI 1.9.0) as the spec/apply/archive path. Init: `--tools cursor,agents --profile core`. Commands: `/opsx-explore`, `/opsx-propose`, `/opsx-apply`, `/opsx-archive` (plus sync/update). Config: `openspec/config.yaml`. Generated skills under `.cursor/skills/openspec-*` and `.agents/skills/openspec-*`; commands under `.cursor/commands/opsx-*.md`.
+- Slimmed `AGENTS.md` (~90 lines): Tailwind v4, no InsForge SDK dump, tiered context loading, one skill-routing table, session order task-observer → remember restore → using-superpowers.
+- Deleted four Tailwind skills (taught raw color classes / wrong repo). Superpowers `brainstorming`, `writing-plans`, `executing-plans` kept but superseded (do not auto-trigger).
+- Ported chatbot-builder lessons into feature-review, TDD (no-runner exception), imprint + `/impeccable document`, recover → systematic-debugging, `.cursor/rules/memory-before-commit.mdc`, cross-cutting principle Skill-readable artifacts. `using-superpowers` now routes “Let’s build X” to OpenSpec.
 
 ## Decisions made
 
-- **Cover Letter Tone dropdown omitted** — build-plan listed it; design + product scope (no cover letters) win. `profiles.cover_letter_tone` column stays unused in UI.
-- **Email from real session** (read-only); other fields are mock (Faizan Ali / Vercel). Local interactivity only — no persistence.
-- **No `ResumePreview.tsx`** this feature — architecture lists it; deferred until something exists to preview.
-- **Attention banner lives inline in the page**, composing `CompletionIndicator` — no extra banner component invented beyond architecture’s tree.
+- OpenSpec owns agree-before-build, implement, and archive. Do not stack Superpowers planning on top. `/architect` runs inside explore/propose only — not a second plan format.
+- Do not back-fill `openspec/specs/` from the 17-feature build-plan. Specs grow from real changes, starting with Feature 06.
+- This repo has no test runner: verify with `npm run lint`, `npm run build`, and a manual click-through. Do not add a test framework unasked.
+- Stale `build-plan.md` bullets (Cover Letter Tone, storage `upsert: true`) stay until Feature 06; reconcile as OpenSpec decisions. Design + product scope win by default. Persist returned storage key/url — no upsert.
 
 ## Problems solved
 
-- Impeccable `context.mjs --target` must be **quoted** when path has Next.js route groups `(app)`.
-- `ui-registry.md` falsely claimed no error/success tokens — tokens exist in `app/globals.css`; registry corrected; imprint now requires re-verifying capability claims.
-- Two-tier radius only: cards `rounded-2xl`, controls/sub-blocks `rounded-md` — never `rounded-lg`.
+- AGENTS.md contradicted itself (read all 9 context files vs targeted loading) and locked Tailwind 3.4 while the app uses v4 `@theme`.
+- Slimming AGENTS.md alone would still auto-invoke brainstorming; `using-superpowers` plan-mode gate had to change in the same commit.
 
 ## Current state
 
-- Phase 2 started. Feature 05 UI works at `/profile` (auth-protected; verified `GET /profile` 200 in dev).
-- **Not committed** — working tree has profile files, skill/docs updates, `skill-observations/`, modified architect/imprint/impeccable skills + design.json.
-- Minors from review left open (not blocking): PDF type check only on drop not file-picker; no remove-role control; mock EDUCATION inconsistency; `SelectField`/`TagInput` still private helpers inside `ProfileForm.tsx`; dropdown display labels vs schema enums (map in Feature 06).
+- Product: Feature 05 Profile UI is on `main` (`e6eb5d2`). Mock interactivity only; Save/upload inert. `/profile` works (auth-protected).
+- Workflow: OpenSpec + slim AGENTS.md ready. Restart IDE if `/opsx-*` commands are missing from the picker.
+- Feature 05 review minors still open (not blocking): PDF type check on drop only; no remove-role control; mock EDUCATION inconsistency; `SelectField`/`TagInput` still private in `ProfileForm.tsx`; dropdown labels vs schema enums (map on save).
 
 ## Next session starts with
 
-1. Commit Feature 05 (+ docs/skill housekeeping if desired), then build **Feature 06 Profile Save Logic** per `build-plan.md`: Server Action in `actions/profile.ts`, resume upload to InsForge Storage (remember: no upsert — persist returned key/url; path isolation server-side), completion % / missing fields / `is_complete`, form pre-fill, `revalidatePath('/profile')`. Map dropdown UI labels → schema enum values on save.
+`/remember restore`, then `/opsx-propose Feature 06 Profile Save Logic`. Server Action in `actions/profile.ts`, resume upload to InsForge Storage (no upsert — persist returned key/url; path isolation server-side), completion % / missing fields / `is_complete`, form pre-fill, `revalidatePath('/profile')`. Map dropdown UI labels → schema enum values on save.
 
 ## Open questions
 
-- Whether to extract `SelectField` / `TagInput` into their own files before Feature 06 (Minor from review) or leave until reuse appears.
+- Extract `SelectField` / `TagInput` before Feature 06, or wait until reuse.
 - Optional deferred: OAuth callback request-ID correlation (#8).
