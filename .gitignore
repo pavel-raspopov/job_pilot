@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# Defensive: a dot-less mis-rename must never be committable.
+env.local
+env.*.local
 
 # vercel
 .vercel
@@ -63,3 +66,8 @@ next-env.d.ts
 .impeccable/live/deferred-svelte-component-accepts.json
 .impeccable/live/*.png
 # impeccable-ignore-end
+
+# Claude Code per-developer overrides. Holds MCP credentials (InsForge /
+# PostHog API keys) in its env block - never commit it. .mcp.json is the
+# committed, secret-free half of the pair.
+.claude/settings.local.json

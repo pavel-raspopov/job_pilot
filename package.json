@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "sync:agents": "node scripts/sync-agents.mjs",
+    "check:sync": "node scripts/sync-agents.mjs --check",
+    "check:agents": "node scripts/check-agent-config.mjs --check",
+    "fix:agents": "node scripts/check-agent-config.mjs"
   },
   "dependencies": {
     "@insforge/sdk": "^1.5.0",
@@ -19,6 +23,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@fission-ai/openspec": "^1.11.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

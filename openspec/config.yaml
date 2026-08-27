@@ -43,7 +43,7 @@ rules:
   proposal:
     - Reconcile context/build-plan.md, design assets under context/designs/, and product scope in context/project-overview.md. Surface conflicts as a developer decision; do not silently pick a side.
     - Include a Non-goals section. Scope is sacred — only the current feature.
-    - Name verification: npm run lint, npm run build, manual click-through. Do not propose adding a test framework.
+    - "Name verification: npm run lint, npm run build, manual click-through. Do not propose adding a test framework."
     - Name secret-dependent steps as human gates (env name + dashboard path, no E2E claim if missing).
     - Invoke /architect during explore/propose for language alignment and Step 1b source reconciliation. Do not write a competing Superpowers plan under docs/superpowers/.
   specs:
@@ -51,26 +51,26 @@ rules:
     - Reference existing patterns in the codebase before inventing new ones.
     - Never specify raw Tailwind color classes or hardcoded hex; tokens only.
   design:
-    - State which files are in scope and which are frozen. Frozen files: one-line type/compile fixes only if a named verify command fails; no behavior changes.
+    - "State which files are in scope and which are frozen. Frozen files: one-line type/compile fixes only if a named verify command fails; no behavior changes."
     - Server Components by default; "use client" only for state/effects/browser APIs.
-    - InsForge: SDK for app logic (auth, CRUD, storage, functions); MCP for infrastructure (schema, buckets, functions deploy). Inserts are arrays. Returns { data, error }.
-    - UI-heavy changes: /impeccable shape before implementation if a visual decision is still open.
+    - "InsForge: SDK for app logic (auth, CRUD, storage, functions); MCP for infrastructure (schema, buckets, functions deploy). Inserts are arrays. Returns { data, error }."
+    - "UI-heavy changes: /impeccable shape before implementation if a visual decision is still open."
   tasks:
     - Bite-sized steps with exact file paths. Each task names how to verify (lint, build, or a specific manual path).
     - If there is no test runner, do not write red-green test steps. Use the project's verify commands.
-    - After UI tasks: /imprint. After all tasks: verification-before-completion, then /feature-review.
+    - "After UI tasks: /imprint. After all tasks: verification-before-completion, then /feature-review."
 
 operations:
   apply:
     guidance:
       - Follow openspec/changes/<id>/tasks.md in order. Do not expand scope.
-      - Frozen file vs verify: if a named verify command fails in a frozen file, a one-line type/compile fix is in scope; behavior changes are not. Record the exception.
+      - "Frozen file vs verify: if a named verify command fails in a frozen file, a one-line type/compile fix is in scope; behavior changes are not. Record the exception."
       - Do not add a test framework. Run npm run lint and npm run build. Show the output. Do not claim done without it.
-      - Secret-dependent steps: check the env name is present; never print the value; leave human-only todos pending.
+      - "Secret-dependent steps: check the env name is present; never print the value; leave human-only todos pending."
       - After new UI components, run /imprint before marking UI tasks complete.
   archive:
     guidance:
       - Run /feature-review before archiving. Honor the developer's triage (Important + named Minors only).
-      - Grep product UI (not docs) for leftover stub copy: "not yet", "not connected", "coming soon".
+      - "Grep product UI (not docs) for leftover stub copy: \"not yet\", \"not connected\", \"coming soon\"."
       - Keep the completion summary concise. Update context/progress-tracker.md and context/ui-registry.md when the feature ships.
       - Do not bulk-convert unrelated build-plan features into openspec/specs/.

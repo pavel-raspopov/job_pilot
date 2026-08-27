@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Agent tooling vendored from other harnesses (.agents, .cursor) and the
+    // Claude Code copies of it. Third-party skill scripts, not project source.
+    ".agents/**",
+    ".cursor/**",
+    ".claude/**",
   ]),
 ]);
 

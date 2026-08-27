@@ -20,7 +20,37 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Analytics:** PostHog
 - **Jobs:** Adzuna API
 
-InsForge app code: use InsForge MCP (`fetch-docs` / `fetch-sdk-docs`) and `~/.claude/skills/insforge`. Infrastructure (SQL, buckets, functions): `insforge-cli`. Project patterns: `context/library-docs.md`.
+InsForge app code: use InsForge MCP (`fetch-docs` / `fetch-sdk-docs`). Infrastructure (SQL, buckets, functions): the same MCP (`run-raw-sql`, `get-table-schema`, `create-bucket`) or `npx @insforge/cli`. Project patterns: `context/library-docs.md`.
+
+## Environments
+
+This project is developed in three harnesses. Each reads a different config tree; none reads the others.
+
+| Harness | Skills | Commands | MCP |
+| --- | --- | --- | --- |
+| Claude Code | `.claude/skills/` | `.claude/commands/` | `.mcp.json` |
+| Cursor | `.cursor/skills/` | `.cursor/commands/` | `.cursor/mcp.json` |
+| VS Code + Cline | `.clinerules/skills/` | `.clinerules/workflows/` | Cline global settings |
+
+`.agents/skills/` is the **single source of truth**. The three trees above are generated copies — `skills-lock.json` records each skill's upstream repo. Edit `.agents/skills/`, then run:
+
+```
+npm run sync:agents
+```
+
+A skill edited in one harness tree and not synced is live in that harness only. Never hand-edit a generated tree.
+
+`openspec` must be installed globally (`npm i -g @fission-ai/openspec`) on every machine — the `opsx-*` commands call the bare binary, which a devDependency does not put on PATH.
+
+MCP credentials never go in a committed file. Each harness reads them from its own gitignored local config; `.mcp.json` and `.cursor/mcp.json` reference them as `${VAR}`.
+
+### AGENTS.md gets overwritten
+
+InsForge tooling rewrites this file with its own SDK boilerplate when its MCP server starts (the giveaway: `description: Instructions building apps with MCP` in the frontmatter, and a `# InsForge SDK Documentation` heading). If you see that, this file has been clobbered — restore it:
+
+```
+npm run check:agents
+```
 
 ## Session start
 
@@ -90,3 +120,6 @@ One job each. If two skills seem to apply, this table wins.
 - Before any third-party library: load its installed skill first, then `context/library-docs.md`
 - If the same problem persists after one corrective prompt — stop and run `/recover`
 - Never persist secrets (keys, tokens, connection strings) in `memory.md`, git, or logs
+- Run `/remember save` **before** every git commit and stage `memory.md` with the work — never leave memory for a follow-up commit
+- Edit skills in `.agents/skills/` and run `npm run sync:agents` — never hand-edit `.claude/`, `.cursor/`, or `.clinerules/`
+- If this file starts with `# InsForge SDK Documentation`, it was overwritten — run `npm run check:agents` before doing anything else

@@ -27,7 +27,7 @@ resolved statuses always carry their resolution date
 
 ### Observation 5: YAML list items with colons silently drop a whole config file
 
-**Status:** OPEN
+**Status:** ACTIONED (2026-08-27) — all 8 colon-bearing list items under `rules:` / `operations:` in `openspec/config.yaml` are now double-quoted (L46, 54, 56, 57, 61, 67, 69, 74). Verified by parsing the file with the same `yaml` library whose error the CLI was surfacing: every rule item is now a plain string, not a nested mapping. Items inside the `context: |` block scalar were correctly left alone.
 **Date:** 2026-08-18
 **Session context:** `/opsx-propose` Feature 06 — `openspec` CLI ignored `openspec/config.yaml`
 **Skill:** openspec-propose

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "insforge": {
+      "command": "npx",
+      "args": ["-y", "@insforge/mcp"],
+      "env": {
+        "API_KEY": "${INSFORGE_API_KEY}",
+        "API_BASE_URL": "${INSFORGE_API_BASE_URL}"
+      }
+    },
+    "posthog": {
+      "url": "https://mcp.posthog.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${POSTHOG_PERSONAL_API_KEY}"
+      }
+    }
+  }
+}
