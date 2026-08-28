@@ -4,7 +4,6 @@ import { parseProfileRow } from "@/lib/parse-profile";
 import { getProfileCompletion } from "@/lib/profile-completion";
 import { CompletionIndicator } from "@/components/profile/CompletionIndicator";
 import { ProfileForm } from "@/components/profile/ProfileForm";
-import { ResumeUpload } from "@/components/profile/ResumeUpload";
 import type { Profile } from "@/types";
 
 const EMPTY_COMPLETION_INPUT: Pick<
@@ -92,10 +91,14 @@ export default async function ProfilePage() {
           </section>
         ) : null}
 
-        <ResumeUpload
-          hasResume={Boolean(profile?.resume_pdf_key ?? profile?.resume_pdf_url)}
+        <ProfileForm
+          email={email}
+          userId={userId}
+          profile={profile}
+          hasResume={Boolean(
+            profile?.resume_pdf_key ?? profile?.resume_pdf_url,
+          )}
         />
-        <ProfileForm email={email} userId={userId} profile={profile} />
       </div>
     </div>
   );

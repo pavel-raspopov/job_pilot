@@ -7,8 +7,8 @@ Update this file after every completed feature. Any AI agent reading this should
 ## Current Status
 
 **Phase:** Phase 2 — Profile Page (in progress)
-**Last completed:** 06 Profile Save Logic
-**Next:** 07 AI Profile Extraction from Resume
+**Last completed:** 07 AI Profile Extraction from Resume
+**Next:** 08 Resume PDF Generation from Profile
 
 ---
 
@@ -25,7 +25,7 @@ Update this file after every completed feature. Any AI agent reading this should
 
 - [x] 05 Profile Page — Full UI
 - [x] 06 Profile Save Logic
-- [ ] 07 AI Profile Extraction from Resume
+- [x] 07 AI Profile Extraction from Resume
 - [ ] 08 Resume PDF Generation from Profile
 
 ### Phase 3 — Find Jobs Page
@@ -49,6 +49,18 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Feature 07 AI Profile Extraction from Resume (2026-08-28).** Extraction runs through the **InsForge AI gateway** (`insforge.ai.chat.completions.create`), not OpenAI directly — no `OPENAI_API_KEY`, no `openai` package, no `pdf-parse`. The PDF is sent natively as a `file` part with `fileParser`, via a 5-minute signed storage URL that is never returned to the browser. `architecture.md`, `code-standards.md`, and `library-docs.md` were reconciled to match; the legacy OpenAI and pdf-parse sections are marked SUPERSEDED. Two model constants, both benchmarked rather than guessed: `EXTRACTION_MODEL` = `google/gemini-2.5-flash` (only candidate scoring 8/8 on ground-truth checks) and `PROBE_MODEL` = `google/gemini-2.5-flash-lite` at `maxTokens: 16`. Roughly **$0.0017 per extraction**, about 580 on the free plan's $1/month credit. **Do not downgrade the extraction model for cost** — `flash-lite` misspelled the surname and got the city wrong, `gpt-4o-mini` dropped LinkedIn/degree/institution, `gpt-5-nano` never calls the tool. Table in `context/library-docs.md`.
+
+  **Extract vs. Skip reconciled.** `project-overview.md` describes two options on upload (Extract / Skip), `build-plan.md` describes one Extract button, and `designs/profile.png` shows only the empty state and is silent. Built a single Extract action: Feature 06 already stores the resume on file-select, so a Skip button would perform no action.
+
+  **Two traps worth remembering.** (1) The SDK's HTTP client defaults to a **30s timeout**, which a real multi-page CV exceeds; the AI call constructs its own client at 120s while session reads keep the default. (2) **Never force a tool call on input the model may not be able to read.** With `toolChoice: "required"` a text-free PDF made the model fabricate a complete profile ("John Doe", San Francisco, generic skills) and return it as a success, filling the form with data a user could save. Prompt rules forbidding invention, a required `document_contains_resume` flag, and relaxing to `toolChoice: "auto"` all failed to stop it. Fixed with a **readability probe** — a separate call with no tool attached that copies the document's first words or replies `EMPTY_DOCUMENT`, correct 10/10 across blank and real CVs. This restores the guard `build-plan.md` originally specified for `pdf-parse`; only the mechanism changed.
+
+  **`maxDuration` is mandatory on AI routes.** Extraction takes 20–40s; without `export const maxDuration = 120` the route inherits the serverless default (10s Vercel Hobby, 15s Pro) and dies in production while passing every local test, because dev has no limit. Every later AI route (Features 08, 10, 13) needs the same export. Also cap output with `maxTokens` — output is the dominant cost.
+
+  **Shared route types live in `types/index.ts`.** `ExtractedProfile` / `ExtractActionResult` started out declared in the route and imported by components, which pointed `components/` → `app/api/` against `architecture.md`. Moved before the pattern could be copied by the next three AI features.
+
+  **Form wiring — no new component files.** `ProfileForm` now renders `ResumeUpload` (outside its `<form>`) and owns a `draft` state; a `formKey` remount makes the ~20 uncontrolled `defaultValue` inputs re-read it, avoiding a risky controlled-input rewrite of Feature 06's verified save path. Extraction merges over the draft so fields the resume omits are not blanked, and persists nothing until Save Profile. No new PostHog event.
 
 - **Feature 06 Profile Save Logic (2026-08-18).** Persist only `is_complete`; completion % and missing tags are computed at read time (`lib/profile-completion.ts`). Added `profiles.resume_pdf_key` (SQL in `db/migrations/002_add_resume_pdf_key.sql`), applied via InsForge MCP `run-raw-sql` and confirmed with `get-table-schema`. Private `resumes` bucket present. `uploadResume` on file select; `saveProfile` writes form fields only. `profile_completed` fires client-side once on false→true. No `upsert: true`; persist returned storage url+key; reject keys whose first segment is not `user.id`. Cover letter tone still unwritten. `SelectField`/`TagInput` remain private in `ProfileForm.tsx`. Server Action body limit raised to 6mb in `next.config.ts` so 5MB PDFs can reach the action. No new component files; `/imprint` recorded inline form errors and the inert Generate Resume CTA. `/impeccable document` skipped — no visual-system change.
 

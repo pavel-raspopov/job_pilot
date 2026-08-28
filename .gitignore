@@ -71,3 +71,6 @@ next-env.d.ts
 # PostHog API keys) in its env block - never commit it. .mcp.json is the
 # committed, secret-free half of the pair.
 .claude/settings.local.json
+
+# Local test fixtures (real CVs used for resume extraction) — personal data, keep out of git
+assets/

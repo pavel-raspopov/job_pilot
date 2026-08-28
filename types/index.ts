@@ -54,3 +54,35 @@ export type Profile = {
   resume_pdf_key: string | null;
   is_complete: boolean;
 };
+
+/**
+ * Profile fields recovered from a resume PDF by `POST /api/resume/extract`.
+ * Every field is optional: the resume states what it states, and anything
+ * absent must be left alone rather than blanked.
+ */
+export type ExtractedProfile = {
+  full_name?: string;
+  phone?: string;
+  location?: string;
+  linkedin_url?: string;
+  portfolio_url?: string;
+  work_authorization?: WorkAuthorization;
+  current_title?: string;
+  experience_level?: ExperienceLevel;
+  years_experience?: number;
+  skills?: string[];
+  industries?: string[];
+  job_titles_seeking?: string[];
+  remote_preference?: RemotePreference;
+  preferred_locations?: string[];
+  salary_expectation?: string;
+  education?: Education;
+  work_experience?: WorkExperienceRole[];
+};
+
+/** Result shape of `POST /api/resume/extract`. Mirrors `ProfileActionResult`. */
+export type ExtractActionResult = {
+  success: boolean;
+  error?: string;
+  profile?: ExtractedProfile;
+};

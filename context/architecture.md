@@ -9,7 +9,7 @@
 | Cloud browser                  | Browserbase              | Company research — browsing company public pages |
 | AI browser control             | Stagehand                | Company page interaction and content extraction  |
 | Job Discovery                  | Adzuna API               | Job search and discovery                         |
-| AI model                       | OpenAI GPT-4o            | Matching, research synthesis, extraction         |
+| AI model gateway               | InsForge AI (OpenRouter) | Matching, research synthesis, extraction         |
 | Analytics                      | PostHog                  | Event tracking and dashboard charts              |
 | PDF generation                 | @react-pdf/renderer      | Resume PDF rendering                             |
 | Styling                        | Tailwind CSS + shadcn/ui | UI components and styling                        |
@@ -57,7 +57,7 @@
 │       │   └── research/route.ts          → Trigger company research agent
 │       ├── resume/
 │       │   ├── generate/route.ts          → Generate base resume PDF from profile
-│       │   └── extract/route.ts           → Extract profile data from uploaded resume PDF
+│       │   └── extract/route.ts           → Extract profile data from uploaded resume PDF (InsForge AI gateway, native PDF input)
 ├── agent/
 │   ├── adzuna.ts                          → Adzuna API job discovery + GPT-4o scoring
 │   ├── research.ts                        → Company research — Browserbase + Stagehand + GPT-4o

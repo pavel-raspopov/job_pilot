@@ -251,7 +251,6 @@ All environment variables defined in `.env.local` for development. Never hardcod
 | `NEXT_PUBLIC_INSFORGE_ANON_KEY` | lib/insforge-client.ts |
 | `BROWSERBASE_API_KEY`           | lib/browserbase.ts     |
 | `BROWSERBASE_PROJECT_ID`        | lib/browserbase.ts     |
-| `OPENAI_API_KEY`                | agent/ functions       |
 | `ADZUNA_APP_ID`                 | lib/adzuna.ts          |
 | `ADZUNA_APP_KEY`                | lib/adzuna.ts          |
 | `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` | instrumentation-client.ts, lib/posthog-server.ts |
@@ -314,11 +313,11 @@ Approved dependencies for this project:
 - `@insforge/sdk` — InsForge client (SSR helpers under `@insforge/sdk/ssr`)
 - `@browserbasehq/sdk` — Browserbase sessions
 - `@browserbasehq/stagehand` — AI browser control
-- `openai` — GPT-4o API
+- AI models — via `insforge.ai.chat.completions.create` (InsForge AI gateway). No `openai` package and no `OPENAI_API_KEY`.
 - `posthog-js` — PostHog browser client
 - `posthog-node` — PostHog server client
 - `@react-pdf/renderer` — Resume PDF generation
-- `pdf-parse` — Extract text from uploaded PDF
+- PDF reading — send the PDF to the gateway as a `file` part with `fileParser`. No `pdf-parse`.
 - `zod` — Schema validation
 - `lucide-react` — Icons
 - `tailwindcss` — Styling

@@ -4,7 +4,12 @@ import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { ChevronDown, Plus, X } from "lucide-react";
 import posthog from "posthog-js";
 import { saveProfile } from "@/actions/profile";
-import type { Profile, WorkExperienceRole } from "@/types";
+import { ResumeUpload } from "@/components/profile/ResumeUpload";
+import type {
+  ExtractedProfile,
+  Profile,
+  WorkExperienceRole,
+} from "@/types";
 
 type FormRole = {
   company: string;
@@ -19,7 +24,65 @@ type Props = {
   email: string;
   userId: string;
   profile: Profile | null;
+  hasResume: boolean;
 };
+
+/**
+ * Fields the form renders from `draft`. Extraction merges over this shape;
+ * the stored `profile` seeds it and is never mutated.
+ */
+type Draft = Partial<
+  Pick<
+    Profile,
+    | "full_name"
+    | "phone"
+    | "location"
+    | "linkedin_url"
+    | "portfolio_url"
+    | "work_authorization"
+    | "current_title"
+    | "experience_level"
+    | "years_experience"
+    | "education"
+    | "job_titles_seeking"
+    | "remote_preference"
+    | "preferred_locations"
+    | "salary_expectation"
+  >
+>;
+
+function draftFromProfile(profile: Profile | null): Draft {
+  if (profile === null) {
+    return {};
+  }
+  return {
+    full_name: profile.full_name,
+    phone: profile.phone,
+    location: profile.location,
+    linkedin_url: profile.linkedin_url,
+    portfolio_url: profile.portfolio_url,
+    work_authorization: profile.work_authorization,
+    current_title: profile.current_title,
+    experience_level: profile.experience_level,
+    years_experience: profile.years_experience,
+    education: profile.education,
+    job_titles_seeking: profile.job_titles_seeking,
+    remote_preference: profile.remote_preference,
+    preferred_locations: profile.preferred_locations,
+    salary_expectation: profile.salary_expectation,
+  };
+}
+
+function rolesFromExtracted(roles: WorkExperienceRole[]): FormRole[] {
+  return roles.slice(0, MAX_ROLES).map((role) => ({
+    company: role.company,
+    jobTitle: role.job_title,
+    startDate: role.start_date,
+    endDate: role.end_date ?? "",
+    currentlyWorking: role.currently_working,
+    responsibilities: role.responsibilities,
+  }));
+}
 
 const MAX_ROLES = 3;
 
@@ -202,7 +265,9 @@ function TagInput({
   );
 }
 
-export function ProfileForm({ email, userId, profile }: Props) {
+export function ProfileForm({ email, userId, profile, hasResume }: Props) {
+  const [draft, setDraft] = useState<Draft>(() => draftFromProfile(profile));
+  const [formKey, setFormKey] = useState(0);
   const [skills, setSkills] = useState<string[]>(profile?.skills ?? []);
   const [industries, setIndustries] = useState<string[]>(
     profile?.industries ?? [],
@@ -212,6 +277,64 @@ export function ProfileForm({ email, userId, profile }: Props) {
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  /**
+   * Merge extracted values over the current draft and remount the form so the
+   * uncontrolled `defaultValue` inputs re-read it. Fields the resume did not
+   * state are left untouched rather than blanked.
+   */
+  const handleExtracted = (extracted: ExtractedProfile): void => {
+    setDraft((current) => ({
+      ...current,
+      ...(extracted.full_name !== undefined && { full_name: extracted.full_name }),
+      ...(extracted.phone !== undefined && { phone: extracted.phone }),
+      ...(extracted.location !== undefined && { location: extracted.location }),
+      ...(extracted.linkedin_url !== undefined && {
+        linkedin_url: extracted.linkedin_url,
+      }),
+      ...(extracted.portfolio_url !== undefined && {
+        portfolio_url: extracted.portfolio_url,
+      }),
+      ...(extracted.work_authorization !== undefined && {
+        work_authorization: extracted.work_authorization,
+      }),
+      ...(extracted.current_title !== undefined && {
+        current_title: extracted.current_title,
+      }),
+      ...(extracted.experience_level !== undefined && {
+        experience_level: extracted.experience_level,
+      }),
+      ...(extracted.years_experience !== undefined && {
+        years_experience: extracted.years_experience,
+      }),
+      ...(extracted.education !== undefined && { education: extracted.education }),
+      ...(extracted.job_titles_seeking !== undefined && {
+        job_titles_seeking: extracted.job_titles_seeking,
+      }),
+      ...(extracted.remote_preference !== undefined && {
+        remote_preference: extracted.remote_preference,
+      }),
+      ...(extracted.preferred_locations !== undefined && {
+        preferred_locations: extracted.preferred_locations,
+      }),
+      ...(extracted.salary_expectation !== undefined && {
+        salary_expectation: extracted.salary_expectation,
+      }),
+    }));
+
+    if (extracted.skills !== undefined) {
+      setSkills(extracted.skills);
+    }
+    if (extracted.industries !== undefined) {
+      setIndustries(extracted.industries);
+    }
+    if (extracted.work_experience !== undefined) {
+      setRoles(rolesFromExtracted(extracted.work_experience));
+    }
+
+    setError(null);
+    setFormKey((key) => key + 1);
+  };
 
   const addTag = (
     list: string[],
@@ -268,8 +391,11 @@ export function ProfileForm({ email, userId, profile }: Props) {
   };
 
   return (
-    <section className="bg-surface border border-border rounded-2xl p-6 shadow-card">
-      <form onSubmit={handleSubmit}>
+    <>
+      <ResumeUpload hasResume={hasResume} onExtracted={handleExtracted} />
+
+      <section className="bg-surface border border-border rounded-2xl p-6 shadow-card">
+      <form key={formKey} onSubmit={handleSubmit}>
         <div className="border-b border-border pb-4">
           <h2 className="text-base font-semibold text-text-primary">
             Profile Information
@@ -294,7 +420,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="full-name"
                   name="full_name"
                   type="text"
-                  defaultValue={profile?.full_name ?? ""}
+                  defaultValue={draft?.full_name ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
@@ -318,7 +444,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="phone"
                   name="phone"
                   type="tel"
-                  defaultValue={profile?.phone ?? ""}
+                  defaultValue={draft?.phone ?? ""}
                   placeholder="+1 (555) 000-0000"
                   className={INPUT_CLASS}
                 />
@@ -331,7 +457,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="location"
                   name="location"
                   type="text"
-                  defaultValue={profile?.location ?? ""}
+                  defaultValue={draft?.location ?? ""}
                   placeholder="City, Country"
                   className={INPUT_CLASS}
                 />
@@ -344,7 +470,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="linkedin-url"
                   name="linkedin_url"
                   type="url"
-                  defaultValue={profile?.linkedin_url ?? ""}
+                  defaultValue={draft?.linkedin_url ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
@@ -356,7 +482,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="portfolio-url"
                   name="portfolio_url"
                   type="url"
-                  defaultValue={profile?.portfolio_url ?? ""}
+                  defaultValue={draft?.portfolio_url ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
@@ -364,7 +490,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                 id="work-authorization"
                 name="work_authorization"
                 label="Work Authorization"
-                defaultValue={profile?.work_authorization ?? ""}
+                defaultValue={draft?.work_authorization ?? ""}
                 options={WORK_AUTHORIZATION_OPTIONS}
               />
             </div>
@@ -383,7 +509,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="current-title"
                   name="current_title"
                   type="text"
-                  defaultValue={profile?.current_title ?? ""}
+                  defaultValue={draft?.current_title ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
@@ -392,7 +518,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="experience-level"
                   name="experience_level"
                   label="Experience Level"
-                  defaultValue={profile?.experience_level ?? ""}
+                  defaultValue={draft?.experience_level ?? ""}
                   options={EXPERIENCE_LEVEL_OPTIONS}
                 />
                 <div>
@@ -405,10 +531,10 @@ export function ProfileForm({ email, userId, profile }: Props) {
                     type="number"
                     min={0}
                     defaultValue={
-                      profile?.years_experience === null ||
-                      profile?.years_experience === undefined
+                      draft.years_experience === null ||
+                      draft.years_experience === undefined
                         ? ""
-                        : profile.years_experience
+                        : draft.years_experience
                     }
                     className={INPUT_CLASS}
                   />
@@ -580,7 +706,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                 id="highest-degree"
                 name="education_degree"
                 label="Highest Degree"
-                defaultValue={profile?.education?.degree ?? ""}
+                defaultValue={draft?.education?.degree ?? ""}
                 options={DEGREE_OPTIONS}
               />
               <div>
@@ -591,7 +717,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="field-of-study"
                   name="education_field"
                   type="text"
-                  defaultValue={profile?.education?.field ?? ""}
+                  defaultValue={draft?.education?.field ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
@@ -603,7 +729,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="institution"
                   name="education_institution"
                   type="text"
-                  defaultValue={profile?.education?.institution ?? ""}
+                  defaultValue={draft?.education?.institution ?? ""}
                   placeholder="E.g. State University"
                   className={INPUT_CLASS}
                 />
@@ -617,7 +743,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   name="education_year"
                   type="text"
                   inputMode="numeric"
-                  defaultValue={profile?.education?.year ?? ""}
+                  defaultValue={draft?.education?.year ?? ""}
                   placeholder="YYYY"
                   className={INPUT_CLASS}
                 />
@@ -638,7 +764,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="job-titles-seeking"
                   name="job_titles_seeking"
                   type="text"
-                  defaultValue={profile?.job_titles_seeking.join(", ") ?? ""}
+                  defaultValue={draft.job_titles_seeking?.join(", ") ?? ""}
                   className={INPUT_CLASS}
                 />
               </div>
@@ -647,7 +773,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="remote-preference"
                   name="remote_preference"
                   label="Remote Preference"
-                  defaultValue={profile?.remote_preference ?? ""}
+                  defaultValue={draft?.remote_preference ?? ""}
                   options={REMOTE_PREFERENCE_OPTIONS}
                 />
                 <div>
@@ -658,7 +784,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                     id="salary-expectation"
                     name="salary_expectation"
                     type="text"
-                    defaultValue={profile?.salary_expectation ?? ""}
+                    defaultValue={draft?.salary_expectation ?? ""}
                     placeholder="E.g. $120k+"
                     className={INPUT_CLASS}
                   />
@@ -672,7 +798,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
                   id="preferred-locations"
                   name="preferred_locations"
                   type="text"
-                  defaultValue={profile?.preferred_locations.join(", ") ?? ""}
+                  defaultValue={draft.preferred_locations?.join(", ") ?? ""}
                   placeholder="E.g. New York, London"
                   className={INPUT_CLASS}
                 />
@@ -696,6 +822,7 @@ export function ProfileForm({ email, userId, profile }: Props) {
           </button>
         </div>
       </form>
-    </section>
+      </section>
+    </>
   );
 }

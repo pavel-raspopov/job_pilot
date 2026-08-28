@@ -494,7 +494,90 @@ const response = await openai.chat.completions.create({
 - If browser research returns empty — still run synthesis with job + profile only
 - yourEdge, gapsToAddress, and smartQuestions are the most valuable fields — never skip them
 
-## OpenAI GPT-4o
+---
+
+## InsForge AI Gateway
+
+**This project does not call OpenAI, Anthropic, or Google directly.** All model access goes through the InsForge AI gateway, already available on the installed `@insforge/sdk` as `client.ai`. There is no `OPENAI_API_KEY` and no `openai` package. Usage is billed to InsForge credits — the free plan includes $1/month, refreshed monthly, which is roughly 1,250 resume extractions.
+
+Verified on this project (2026-08-28): 531 models, 133 of them file-capable, brokered via OpenRouter. Model ids are `provider/model`, e.g. `google/gemini-2.5-flash`, `openai/gpt-4o`, `anthropic/claude-sonnet-5`. List them with `GET /api/ai/models` (admin key required — the anon key is rejected on that endpoint, though it is accepted for chat completions).
+
+### Basic call
+
+```ts
+const insforge = await createInsforgeServer();
+const completion = await insforge.ai.chat.completions.create({
+  model: "google/gemini-2.5-flash",
+  messages: [{ role: "user", content: "…" }],
+  maxTokens: 64,
+});
+const text = completion.choices[0].message.content;
+```
+
+### Response shape — two different shapes, do not mix them up
+
+| Layer | Shape |
+| --- | --- |
+| Raw HTTP `POST /api/ai/chat/completion` | `{ text, tool_calls, metadata: { usage } }` |
+| SDK `client.ai.chat.completions.create` | OpenAI-normalized: `{ id, object, created, model, choices, usage }` |
+
+Through the SDK, read `choices[0].message.content` and `choices[0].message.tool_calls`. Reading the raw `text` / `tool_calls` fields off the SDK result returns `undefined`.
+
+### The 30-second timeout
+
+The SDK's HTTP client defaults to `timeout: 30000`. A real multi-page PDF exceeds that — the gateway has to fetch the file, parse it, and run the model. Pass a longer `timeout` (or `0` to disable) when constructing a client for AI work; keep the default for session reads. See `app/api/resume/extract/route.ts`.
+
+### PDF and image input
+
+Send the file as a content part alongside the text prompt, and enable the parser:
+
+```ts
+messages: [{ role: "user", content: [
+  { type: "text", text: prompt },
+  { type: "file", file: { filename: "resume.pdf", file_data: signedUrl } },
+] }],
+fileParser: { enabled: true },
+```
+
+`file_data` accepts either a URL or a `data:application/pdf;base64,…` URI. Both work. Prefer a **short-lived signed URL** from `storage.from(bucket).createSignedUrl(key, seconds)` — base64 inflates a 5MB PDF to ~6.7MB of JSON. Never return that signed URL to the browser.
+
+### Structured output — forced tool calls, and when NOT to force them
+
+`ChatCompletionRequest` has **no `response_format`**, so JSON mode is unavailable. Use `tools` plus `toolChoice`. `arguments` arrives as a **JSON string** — parse it inside a `try`/`catch`, then validate with zod. `enum` constraints in the tool's JSON schema are honored.
+
+**Hard-won rule: never force a tool call on input the model may not be able to read.** With `toolChoice: "required"` and an empty or unreadable PDF, the model cannot decline — so it invents plausible content. Measured on a text-free PDF: it returned a complete fabricated profile ("John Doe", San Francisco, generic skills), and did so whether `toolChoice` was `"required"` or `"auto"`, with or without a prompt rule forbidding invention and a `document_contains_resume` flag in the schema. Prompt wording does not fix this.
+
+What does work: **gate on a separate probe call that has no tool attached.** Asked plainly to copy the first words of the document or reply `EMPTY_DOCUMENT`, the model answered correctly 10/10 (5/5 blank, 5/5 real CV, byte-identical replies). With no schema to fill, there is nothing to invent into. Run the probe first, and only extract when it reports readable text.
+
+### Model choice and cost
+
+Two constants in `app/api/resume/extract/route.ts`: `EXTRACTION_MODEL` and `PROBE_MODEL`. Benchmarked against a real CV on 8 ground-truth checks — surname, city, LinkedIn URL, employer, degree, institution, skill count, phone digits:
+
+| Model | in / out per M | Checks | Cost per extraction |
+| --- | --- | --- | --- |
+| `google/gemini-2.5-flash` | $0.30 / $2.50 | **8/8** | $0.00164 |
+| `openai/gpt-4.1-mini` | $0.40 / $1.60 | 7/8 | $0.00145 |
+| `openai/gpt-4o-mini` | $0.15 / $0.60 | 5/8 | $0.00046 |
+| `google/gemini-2.5-flash-lite` | $0.10 / $0.40 | fails identity | $0.00030 |
+| `openai/gpt-5-nano` | $0.05 / $0.40 | never calls the tool | — |
+
+**Do not downgrade the extraction model to save money.** The cheap tiers fail on identity fields: `flash-lite` misspelled the surname and returned the wrong city, and `gpt-4o-mini` silently dropped LinkedIn, degree, and institution. Those are precisely the errors a user saves without noticing.
+
+The saving lives in the probe, which only decides whether the document has text — it runs on `flash-lite` at `maxTokens: 24`, cutting that call from ~$0.00041 to ~$0.00009.
+
+Total is roughly **$0.0017 per extraction**, about 580 on the free plan's $1/month credit. The PDF is paid for twice in prompt tokens, once per call; that duplication is the deliberate price of the no-fabrication guarantee above.
+
+### Other supported options
+
+`webSearch: { enabled, maxResults }` (citations land in `message.annotations`), `thinking: true` on Anthropic models, `stream: true` for an async iterable, plus `temperature`, `topP`, `maxTokens`, and `parallelToolCalls`. `client.ai.embeddings.create` and `client.ai.images` also exist.
+
+### Deprecation note
+
+InsForge's own architecture docs describe the backend AI proxy routes as "deprecated compatibility wrappers" and suggest reading `OPENROUTER_API_KEY` from the dashboard and calling the provider directly server-side. The gateway works today and needs no key, so this project uses it. If it is ever withdrawn, the migration is confined to the model constant and the call site.
+
+---
+
+## OpenAI GPT-4o (SUPERSEDED — use the InsForge AI Gateway section above)
 
 **Check first:** Check AGENTS.md for an installed OpenAI skill. The skill will have the latest API patterns and model capabilities.
 
@@ -668,7 +751,7 @@ Only use these — others are silently ignored:
 
 ---
 
-## pdf-parse
+## pdf-parse (SUPERSEDED — send the PDF to the gateway instead; see InsForge AI Gateway above)
 
 **Check first:** Check AGENTS.md for an installed pdf-parse skill.
 

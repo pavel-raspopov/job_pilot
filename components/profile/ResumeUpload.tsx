@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, type DragEvent, type ChangeEvent } from "react";
-import { CloudUpload, FileText } from "lucide-react";
+import { CloudUpload, FileText, Sparkles } from "lucide-react";
 import { uploadResume } from "@/actions/profile";
+import type { ExtractActionResult, ExtractedProfile } from "@/types";
 
 type Props = {
   hasResume: boolean;
+  onExtracted: (profile: ExtractedProfile) => void;
 };
 
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
@@ -20,13 +22,36 @@ function isValidPdf(file: File): string | null {
   return null;
 }
 
-export function ResumeUpload({ hasResume }: Props) {
+export function ResumeUpload({ hasResume, onExtracted }: Props) {
   const [fileName, setFileName] = useState<string | null>(
     hasResume ? "Resume on file" : null,
   );
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [resumeOnFile, setResumeOnFile] = useState(hasResume);
+
+  const handleExtract = async (): Promise<void> => {
+    setError(null);
+    setExtracting(true);
+
+    try {
+      const response = await fetch("/api/resume/extract", { method: "POST" });
+      const result = (await response.json()) as ExtractActionResult;
+
+      if (!result.success || !result.profile) {
+        setError(result.error ?? "Failed to extract from resume");
+        return;
+      }
+
+      onExtracted(result.profile);
+    } catch {
+      setError("Failed to extract from resume");
+    } finally {
+      setExtracting(false);
+    }
+  };
 
   const uploadFile = async (file: File): Promise<void> => {
     const validationError = isValidPdf(file);
@@ -48,6 +73,7 @@ export function ResumeUpload({ hasResume }: Props) {
     }
 
     setFileName(file.name);
+    setResumeOnFile(true);
   };
 
   const handleDrop = (event: DragEvent<HTMLLabelElement>): void => {
@@ -113,6 +139,24 @@ export function ResumeUpload({ hasResume }: Props) {
           Select Resume
         </span>
       </label>
+
+      {resumeOnFile ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-text-secondary">
+            Fill the profile below from this resume. You can review and edit
+            everything before saving.
+          </p>
+          <button
+            type="button"
+            onClick={() => void handleExtract()}
+            disabled={extracting || uploading}
+            className="flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            {extracting ? "Extracting…" : "Extract from Resume"}
+          </button>
+        </div>
+      ) : null}
 
       {error ? (
         <p className="mt-3 text-sm text-error" role="alert">
