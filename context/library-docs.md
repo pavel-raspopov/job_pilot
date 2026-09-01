@@ -702,52 +702,104 @@ export function getPostHogClient(): PostHog | null {
 
 **Check first:** Check AGENTS.md for an installed react-pdf skill. PDF generation APIs can differ from general training knowledge.
 
+Installed: `@react-pdf/renderer@4.9.0`. Peer range covers React 19. **No `serverExternalPackages` entry is needed** — the package is already in Next.js's default externals list (`node_modules/next/dist/docs/01-app/03-api-reference/05-config/01-next-config-js/serverExternalPackages.md`).
+
 ### Resume PDF Generation
 
-```typescript
-import { renderToBuffer } from '@react-pdf/renderer'
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
+Working reference: `app/api/resume/generate/`.
+
+```tsx
+// resume-document.tsx — JSX lives here, not in route.ts.
+// Next.js documents route handlers as route.ts / route.js only, so keep the
+// JSX in a colocated .tsx and export a render function the route calls.
+import path from 'node:path'
+import { Document, Font, Page, Text, View, StyleSheet, renderToBuffer } from '@react-pdf/renderer'
+
+const FONT_DIR = path.join(process.cwd(), 'app/api/resume/generate/fonts')
+
+Font.register({
+  family: 'Inter',
+  fonts: [
+    { src: path.join(FONT_DIR, 'Inter-Regular.ttf'), fontWeight: 400 },
+    { src: path.join(FONT_DIR, 'Inter-SemiBold.ttf'), fontWeight: 600 },
+  ],
+})
+Font.registerHyphenationCallback((word) => [word]) // default breaks words mid-glyph
 
 const styles = StyleSheet.create({
-  page: { padding: 30, fontFamily: 'Helvetica' },
-  section: { marginBottom: 10 },
-  heading: { fontSize: 14, fontWeight: 'bold' },
-  text: { fontSize: 10 },
+  page: { padding: 40, fontFamily: 'Inter', fontSize: 10 },
+  heading: { fontFamily: 'Inter', fontWeight: 600, fontSize: 14 },
 })
 
-const ResumePDF = ({ profile }: { profile: Profile }) => (
-  <Document>
-    <Page size="A4" style={styles.page}>
-      <View style={styles.section}>
-        <Text style={styles.heading}>{profile.fullName}</Text>
-        <Text style={styles.text}>{profile.email}</Text>
-      </View>
-    </Page>
-  </Document>
-)
-
-// Generate buffer
-const buffer = await renderToBuffer(<ResumePDF profile={profile} />)
-
-// Upload directly to InsForge Storage
-await insforge.storage
-  .from('resumes')
-  .upload(`${userId}/resume.pdf`, buffer)
-
-// Persist data.url and data.key on the profile row
+export function renderResumePdf(profile: Profile): Promise<Buffer> {
+  return renderToBuffer(<ResumeDocument profile={profile} />)
+}
 ```
 
-**Supported CSS properties:**
-Only use these — others are silently ignored:
-`padding, margin, fontSize, color, fontFamily, flexDirection, alignItems, justifyContent, borderRadius, width, height, fontWeight, textAlign, lineHeight`
+```typescript
+// route.ts
+const buffer = await renderResumePdf(profile)
+
+// upload() takes File | Blob — NOT a Node Buffer, which is what
+// renderToBuffer returns. The Uint8Array copy is required, not ceremony: a
+// Buffer may be backed by a SharedArrayBuffer, so it is not assignable to
+// BlobPart under strict TypeScript.
+const file = new File([new Uint8Array(buffer)], 'generated-resume.pdf', {
+  type: 'application/pdf',
+})
+
+// Uploading to an existing key REPLACES it (standard PUT semantics per the
+// SDK's own doc comment) — there is no upsert flag to pass.
+const { data } = await insforge.storage
+  .from('resumes')
+  .upload(`${userId}/generated-resume.pdf`, file)
+
+// The resumes bucket is PRIVATE. data.url is a record, not a fetchable link —
+// hand the browser a short-lived signed URL instead.
+const { data: signed } = await insforge.storage
+  .from('resumes')
+  .createSignedUrl(data.key, 300)
+```
+
+### Fonts — do not use the built-in Helvetica
+
+The built-in standard fonts are WinAnsi-only and fail **silently**. Measured on a real render, then confirmed by decoding the PDF's own text operators:
+
+| Input | Helvetica rendered |
+| --- | --- |
+| `Павел Распопов` | `025;` / ` 0A?>?>2` — mangled into garbage, not blank |
+| `•` | dropped entirely — every bullet marker invisible |
+| `—` | dropped — `Jan 2021 — Present` becomes `Jan 2021  Present` |
+| `·` | fine |
+| `José Ferreira-Lühr` | fine — Latin-1 is covered |
+
+The bullet and dash losses affect every document, not just non-Latin ones. Register a Unicode TTF instead. Inter Regular + SemiBold (SIL OFL, the app's own typeface via `next/font`) are bundled at `app/api/resume/generate/fonts/`; after registering, all of the above render correctly **and** pdf.js text extraction returns them character-perfect — which matters because applicant tracking systems parse resumes as text.
+
+`Font.register` takes `src` as a **string** only — a standard font name, a file path, a URL, or a base64 data URL. It does not take a Buffer. Loading by path is preferred over inlining base64 (635KB of TTF becomes ~850KB of base64 in source).
+
+**Fonts loaded by path need a file-tracing entry.** Nothing imports the TTFs, so Next cannot infer them and the serverless bundle ships without them — working in dev and 404-ing only in production:
+
+```typescript
+// next.config.ts
+outputFileTracingIncludes: {
+  '/api/resume/generate': ['./app/api/resume/generate/fonts/**'],
+}
+```
+
+### Supported CSS properties
+
+The earlier claim in this doc — that only 14 properties work and "others are silently ignored" — is **wrong**, verified against `node_modules/@react-pdf/stylesheet/lib/index.d.ts`. `borderBottomWidth`, `borderBottomColor`, `marginBottom`, `letterSpacing`, `textTransform`, and `flexWrap` are all typed and all render. Check the stylesheet package's types rather than trusting a fixed list; TypeScript rejects an unsupported property at build time.
+
+Colors must be literal values (`'#101828'`) — a PDF has no CSS variables. Copy the values from `app/globals.css` `@theme` so the document matches the app. This is the one place in the codebase where a hex literal is correct.
 
 **Rules:**
 
-- Server-side only — never import in client components
-- Always use `renderToBuffer` — not `renderToStream` or `PDFDownloadLink`
+- Server-side only — never import in a client component
+- Always `renderToBuffer` — not `renderToStream` or `PDFDownloadLink`
 - PDF generation only in `app/api/resume/` routes
-- Generated buffer uploaded directly to InsForge Storage — never written to disk
-- Always save public URL to DB after upload
+- Buffer uploaded straight to InsForge Storage — never written to disk
+- Save the storage url and key to the profile row after upload
+- Every AI route that renders a PDF still needs `export const maxDuration`
 
 ---
 

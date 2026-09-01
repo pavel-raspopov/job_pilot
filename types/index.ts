@@ -50,8 +50,17 @@ export type Profile = {
   linkedin_url: string | null;
   portfolio_url: string | null;
   work_authorization: WorkAuthorization | null;
+  /** The resume the user UPLOADED. Feature 07's extraction reads this key. */
   resume_pdf_url: string | null;
   resume_pdf_key: string | null;
+  /**
+   * The resume the app GENERATED from this profile — a separate storage object
+   * from the uploaded one, so generating never destroys the extraction source.
+   * The `resumes` bucket is private, so the url is a record, not a fetchable
+   * link; downloads go through a short-lived signed URL.
+   */
+  generated_resume_url: string | null;
+  generated_resume_key: string | null;
   is_complete: boolean;
 };
 
@@ -85,4 +94,18 @@ export type ExtractActionResult = {
   success: boolean;
   error?: string;
   profile?: ExtractedProfile;
+};
+
+/**
+ * Result shape of `POST /api/resume/generate`.
+ *
+ * `downloadUrl` is a **short-lived signed URL**, not the stored
+ * `generated_resume_url` — the `resumes` bucket is private, so the stored value
+ * is not directly fetchable. It expires within minutes; the UI must not present
+ * it as a permanent link.
+ */
+export type GenerateActionResult = {
+  success: boolean;
+  error?: string;
+  downloadUrl?: string;
 };

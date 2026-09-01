@@ -1,12 +1,24 @@
 "use client";
 
-import { useState, type DragEvent, type ChangeEvent } from "react";
-import { CloudUpload, FileText, Sparkles } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type ChangeEvent,
+} from "react";
+import { CloudUpload, Download, FileText, Sparkles } from "lucide-react";
 import { uploadResume } from "@/actions/profile";
-import type { ExtractActionResult, ExtractedProfile } from "@/types";
+import type {
+  ExtractActionResult,
+  ExtractedProfile,
+  GenerateActionResult,
+} from "@/types";
 
 type Props = {
   hasResume: boolean;
+  hasGeneratedResume: boolean;
+  isProfileComplete: boolean;
   onExtracted: (profile: ExtractedProfile) => void;
 };
 
@@ -22,7 +34,12 @@ function isValidPdf(file: File): string | null {
   return null;
 }
 
-export function ResumeUpload({ hasResume, onExtracted }: Props) {
+export function ResumeUpload({
+  hasResume,
+  hasGeneratedResume,
+  isProfileComplete,
+  onExtracted,
+}: Props) {
   const [fileName, setFileName] = useState<string | null>(
     hasResume ? "Resume on file" : null,
   );
@@ -31,6 +48,80 @@ export function ResumeUpload({ hasResume, onExtracted }: Props) {
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [resumeOnFile, setResumeOnFile] = useState(hasResume);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  /**
+   * Signed and short-lived, so it is deliberately not persisted across a
+   * reload — the user generates again to get a fresh link.
+   */
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  /**
+   * Synchronous in-flight guard. The `disabled` attribute is not enough on its
+   * own: `setGenerating(true)` does not take effect until React re-renders, so
+   * two clicks landing in the same tick both read `generating === false` and
+   * both fire. Verified — a double click sent two POSTs, meaning two billed AI
+   * calls and two uploads racing the same storage key. A ref updates
+   * immediately, closing the window.
+   */
+  const generatingRef = useRef(false);
+
+  /**
+   * A resume generated in an earlier visit is recorded on the profile, but its
+   * download link is signed and long expired. Fetch a fresh one on mount so the
+   * user can reach the existing document without paying for another model call.
+   */
+  useEffect(() => {
+    if (!hasGeneratedResume) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/resume/generate");
+        const result = (await response.json()) as GenerateActionResult;
+        // Never clobber a link from a generation the user just ran.
+        if (!cancelled && result.success && result.downloadUrl) {
+          setDownloadUrl((current) => current ?? result.downloadUrl ?? null);
+        }
+      } catch {
+        // Silent: this is a convenience, and Generate remains the way back.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasGeneratedResume]);
+
+  const handleGenerate = async (): Promise<void> => {
+    if (generatingRef.current) {
+      return;
+    }
+    generatingRef.current = true;
+
+    setGenerateError(null);
+    setDownloadUrl(null);
+    setGenerating(true);
+
+    try {
+      const response = await fetch("/api/resume/generate", { method: "POST" });
+      const result = (await response.json()) as GenerateActionResult;
+
+      if (!result.success || !result.downloadUrl) {
+        setGenerateError(result.error ?? "Failed to generate resume");
+        return;
+      }
+
+      setDownloadUrl(result.downloadUrl);
+    } catch {
+      setGenerateError("Failed to generate resume");
+    } finally {
+      generatingRef.current = false;
+      setGenerating(false);
+    }
+  };
 
   const handleExtract = async (): Promise<void> => {
     setError(null);
@@ -166,17 +257,46 @@ export function ResumeUpload({ hasResume, onExtracted }: Props) {
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
         <p className="text-sm text-text-secondary">
-          Need a fresh document based on the fields below?
+          {isProfileComplete
+            ? "Need a fresh document based on the fields below?"
+            : "Complete the missing profile fields above to generate a resume."}
         </p>
-        <button
-          type="button"
-          disabled
-          className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground opacity-60 cursor-not-allowed"
-        >
-          <FileText className="h-4 w-4" aria-hidden="true" />
-          Generate Resume from Profile
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {downloadUrl ? (
+            <a
+              href={downloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-secondary focus:outline-none focus:ring-1 focus:ring-accent"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Download
+            </a>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void handleGenerate()}
+            disabled={!isProfileComplete || generating}
+            className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <FileText className="h-4 w-4" aria-hidden="true" />
+            {generating ? "Generating…" : "Generate Resume from Profile"}
+          </button>
+        </div>
       </div>
+
+      {downloadUrl ? (
+        <p className="mt-3 text-xs text-text-muted">
+          This download link expires in a few minutes. Generate again for a
+          fresh one.
+        </p>
+      ) : null}
+
+      {generateError ? (
+        <p className="mt-3 text-sm text-error" role="alert">
+          {generateError}
+        </p>
+      ) : null}
     </section>
   );
 }

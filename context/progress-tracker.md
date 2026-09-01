@@ -6,9 +6,9 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ## Current Status
 
-**Phase:** Phase 2 — Profile Page (in progress)
-**Last completed:** 07 AI Profile Extraction from Resume
-**Next:** 08 Resume PDF Generation from Profile
+**Phase:** Phase 3 — Find Jobs Page (next)
+**Last completed:** 08 Resume PDF Generation from Profile — Phase 2 complete
+**Next:** 09 Find Jobs Page — Full UI
 
 ---
 
@@ -26,7 +26,7 @@ Update this file after every completed feature. Any AI agent reading this should
 - [x] 05 Profile Page — Full UI
 - [x] 06 Profile Save Logic
 - [x] 07 AI Profile Extraction from Resume
-- [ ] 08 Resume PDF Generation from Profile
+- [x] 08 Resume PDF Generation from Profile
 
 ### Phase 3 — Find Jobs Page
 
@@ -49,6 +49,20 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Feature 08 Resume PDF Generation from Profile (2026-09-01).** `POST /api/resume/generate` reads the saved profile, has the InsForge AI gateway rewrite it into prose, renders a one-page PDF with `@react-pdf/renderer`, uploads it, and returns a 300s signed URL. Migration `003` adds `generated_resume_url` / `generated_resume_key`. Phase 2 is complete.
+
+  **Two storage slots, not one — this is the load-bearing decision.** `build-plan.md` Feature 08 says to upsert the generated PDF over `resumes/{user_id}/resume.pdf`. That object is the CV the user uploaded in Feature 06, and its key is exactly what Feature 07's extraction reads, so following the plan would have deleted the user's source document and made "Extract from Resume" re-extract the model's own output, degrading further every round. Built instead: `generated-resume.pdf` alongside `resume.pdf`, each with its own url/key pair. Verified after 8 generations — `resume_pdf_key` and its url hash byte-identical, `resume.pdf` still carrying its original upload timestamp, and extraction still returning the *uploaded* CV's title ("Frontend / Full-Stack Engineer", which differs from the generated PDF's "Front-end Engineer" — proof it read the right file).
+
+  **The model never sees the facts.** Rather than a prompt rule against inventing, the `record_resume` tool schema carries *prose only* — a summary and per-role bullets. Names, employers, titles, dates, degrees, and skills go from the profile row straight into the PDF, so there is no field the model can corrupt. Verified: every employer, year, and institution in the output appears in the stored profile. When the rewrite fails entirely (tested with a bogus model id) the PDF still renders from stored text and simply omits the summary — never a hole, never an invention.
+
+  **Never trust a PDF that "looks fine" — decode it.** Five defects survived lint, build, and TypeScript, and were caught only by rendering the document and reading its text operators. (1) The built-in **Helvetica is WinAnsi-only**: it mangled Cyrillic into garbage bytes and silently dropped every `•` and `—`, so bullets were invisible for *all* users. Inter Regular/SemiBold are now bundled at `app/api/resume/generate/fonts/` and registered. (2) The name overlapped the title — baselines 6pt apart for a 22pt line; the page's `lineHeight` did not give it a tall enough box. (3) `letterSpacing` on section headings made each glyph its own positioned run, so extraction returned `S U M M A RY`; an ATS looks for `EXPERIENCE` and would have found noise. Removed. (4) A 43-skill list rendered with per-item separators spilled onto page 2. (5) A double click fired **two billed AI calls** — `setGenerating(true)` is async, so both clicks read `generating === false`; the `disabled` attribute alone is not a guard, a `useRef` is.
+
+  **Model measured, not assumed.** `google/gemini-2.5-flash` at 779 in / 264 out ≈ **$0.00089** per generation (~1,100 on the free $1/month). `gemini-2.5-flash-lite` is ~5x cheaper and produced comparable bullets, but wrote the *current* job in the past tense — reads as though the candidate has left. Not worth the saving at this volume.
+
+  **Two Next.js/SDK facts worth keeping.** `@react-pdf/renderer` needs **no** `serverExternalPackages` entry (already a Next.js default), but fonts read from disk **do** need `outputFileTracingIncludes` — nothing imports them, so the serverless bundle ships without them and fails only in production, the same trap `maxDuration` set in Feature 07. And `storage.upload()` takes `File | Blob`, not the `Buffer` that `renderToBuffer` returns; the `Uint8Array` copy is required because a Buffer may be backed by a SharedArrayBuffer and is not assignable to `BlobPart`.
+
+  **UI.** The inert "Generate Resume from Profile" CTA is live, gated on the computed `getProfileCompletion(...).isComplete` (the same helper the attention banner uses, so gate and banner cannot disagree) rather than the persisted `is_complete` flag. Download is a short-lived signed link — the bucket is private and the stored url returns 401. No new component files; no new PostHog event. The **Inert primary CTA** pattern in `ui-registry.md` is retired: this was its only user, and a real `disabled` button is announced to assistive tech where a permanently-styled fake one is not.
 
 - **Feature 07 AI Profile Extraction from Resume (2026-08-28).** Extraction runs through the **InsForge AI gateway** (`insforge.ai.chat.completions.create`), not OpenAI directly — no `OPENAI_API_KEY`, no `openai` package, no `pdf-parse`. The PDF is sent natively as a `file` part with `fileParser`, via a 5-minute signed storage URL that is never returned to the browser. `architecture.md`, `code-standards.md`, and `library-docs.md` were reconciled to match; the legacy OpenAI and pdf-parse sections are marked SUPERSEDED. Two model constants, both benchmarked rather than guessed: `EXTRACTION_MODEL` = `google/gemini-2.5-flash` (only candidate scoring 8/8 on ground-truth checks) and `PROBE_MODEL` = `google/gemini-2.5-flash-lite` at `maxTokens: 16`. Roughly **$0.0017 per extraction**, about 580 on the free plan's $1/month credit. **Do not downgrade the extraction model for cost** — `flash-lite` misspelled the surname and got the city wrong, `gpt-4o-mini` dropped LinkedIn/degree/institution, `gpt-5-nano` never calls the tool. Table in `context/library-docs.md`.
 

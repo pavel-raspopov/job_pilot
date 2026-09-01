@@ -98,6 +98,11 @@ export default async function ProfilePage() {
           hasResume={Boolean(
             profile?.resume_pdf_key ?? profile?.resume_pdf_url,
           )}
+          hasGeneratedResume={Boolean(profile?.generated_resume_key)}
+          // Computed, not the persisted `is_complete` flag, so the generation
+          // gate and the attention banner above can never disagree about
+          // whether the profile is finished.
+          isProfileComplete={completion.isComplete}
         />
       </div>
     </div>

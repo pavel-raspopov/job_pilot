@@ -123,3 +123,42 @@ One job each. If two skills seem to apply, this table wins.
 - Run `/remember save` **before** every git commit and stage `memory.md` with the work — never leave memory for a follow-up commit
 - Edit skills in `.agents/skills/` and run `npm run sync:agents` — never hand-edit `.claude/`, `.cursor/`, or `.clinerules/`
 - If this file starts with `# InsForge SDK Documentation`, it was overwritten — run `npm run check:agents` before doing anything else
+
+## InsForge SDK notes
+
+Condensed from the boilerplate InsForge tooling writes over this file. Kept here so the useful parts survive the next clobbering — and so the parts that are **wrong for this project** are recorded as wrong rather than silently re-applied.
+
+### Fetching InsForge docs
+
+Before writing InsForge integration code, pull current docs rather than working from training data:
+
+- `fetch-docs <type>` — `instructions`, `db-sdk-typescript`, `auth-sdk-typescript`, `auth-components-nextjs`, `storage-sdk`, `functions-sdk`, `ai-integration-sdk`, `real-time`, `payments`, `deployment`
+- `fetch-sdk-docs <feature> <language>` — feature is `db` / `auth` / `storage` / `functions` / `ai` / `realtime` / `payments`; language is `typescript` for this project
+
+### SDK or MCP
+
+| Use the SDK for | Use MCP for |
+| --- | --- |
+| Auth, database CRUD, storage, AI calls, invoking functions | Schema (`run-raw-sql`, `get-table-schema`), buckets (`create-bucket`, `list-buckets`), deploying functions, `get-backend-metadata` |
+
+App logic never reaches for MCP; infrastructure never goes through the SDK.
+
+### Gotchas that cost real time
+
+- Every SDK call returns `{ data, error }` — check `error`, never assume `data`
+- Inserts take an **array**: `.insert([{ … }])`
+- Serverless functions expose **one endpoint** each; no nested route paths
+- `storage.upload(path, file)` takes `File | Blob`, not a Node `Buffer`
+- The `resumes` bucket is **private** — a stored url is a record, not a fetchable link; reads go through `createSignedUrl`
+- The SDK's HTTP client defaults to a **30s timeout**, too short for a model call — AI routes use `lib/insforge-ai.ts` (120s) and must also `export const maxDuration`
+
+### Boilerplate claims that are wrong here
+
+When this file gets overwritten, these come back. All four are wrong for JobPilot:
+
+| Boilerplate says | Actually |
+| --- | --- |
+| "Use Tailwind CSS 3.4, do not upgrade to v4" | This project is **Tailwind v4** with tokens in `app/globals.css` `@theme` |
+| "Call OpenRouter directly with a server-side `OPENROUTER_API_KEY`" | All AI goes through the **InsForge AI gateway** (`insforge.ai.chat.completions.create`). There is no `OPENROUTER_API_KEY`, and none is needed — Feature 07 |
+| "`download-template` is the MANDATORY FIRST STEP" | Only for new projects. This one exists |
+| `createClient()` setup snippets | Already done: `lib/insforge-client.ts`, `lib/insforge-server.ts`, `lib/insforge-ai.ts` |

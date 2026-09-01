@@ -25,6 +25,8 @@ type Props = {
   userId: string;
   profile: Profile | null;
   hasResume: boolean;
+  hasGeneratedResume: boolean;
+  isProfileComplete: boolean;
 };
 
 /**
@@ -265,7 +267,14 @@ function TagInput({
   );
 }
 
-export function ProfileForm({ email, userId, profile, hasResume }: Props) {
+export function ProfileForm({
+  email,
+  userId,
+  profile,
+  hasResume,
+  hasGeneratedResume,
+  isProfileComplete,
+}: Props) {
   const [draft, setDraft] = useState<Draft>(() => draftFromProfile(profile));
   const [formKey, setFormKey] = useState(0);
   const [skills, setSkills] = useState<string[]>(profile?.skills ?? []);
@@ -392,7 +401,12 @@ export function ProfileForm({ email, userId, profile, hasResume }: Props) {
 
   return (
     <>
-      <ResumeUpload hasResume={hasResume} onExtracted={handleExtracted} />
+      <ResumeUpload
+        hasResume={hasResume}
+        hasGeneratedResume={hasGeneratedResume}
+        isProfileComplete={isProfileComplete}
+        onExtracted={handleExtracted}
+      />
 
       <section className="bg-surface border border-border rounded-2xl p-6 shadow-card">
       <form key={formKey} onSubmit={handleSubmit}>

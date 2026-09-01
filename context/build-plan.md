@@ -152,6 +152,29 @@ Generate a clean professional PDF resume from current profile data using GPT-4o.
 - Buffer uploaded to InsForge Storage at resumes/{user_id}/resume.pdf with upsert: true
 - resume_pdf_url updated in profiles table
 
+> **Reconciled at build time (2026-09-01) — three points above were not followed.**
+>
+> 1. **Storage destination.** Upserting over `resumes/{user_id}/resume.pdf` would
+>    destroy the CV the user uploaded in Feature 06 — and that object's key,
+>    `resume_pdf_key`, is exactly what Feature 07's extraction route reads, so
+>    "Extract from Resume" would start re-extracting the model's own output and
+>    degrade on every round trip. Feature 08 predates Feature 07 in this plan and
+>    could not have anticipated it. Built instead: a second object at
+>    `resumes/{user_id}/generated-resume.pdf` with its own
+>    `generated_resume_url` / `generated_resume_key` columns (migration `003`).
+>    `resume_pdf_url` / `resume_pdf_key` now mean *the uploaded resume*
+>    specifically.
+> 2. **Provider.** Not GPT-4o called directly — the InsForge AI gateway, the
+>    pattern established in Feature 07. No `OPENAI_API_KEY`.
+> 3. **What the model produces.** Not "resume content" wholesale. The tool schema
+>    carries *prose only* — a summary and per-role bullets. Names, employers,
+>    titles, dates, degrees, and skills go from the profile row into the PDF
+>    directly, so there is no field the model can misspell into the document.
+>
+> Also discovered here and worth knowing before the next PDF feature: the
+> built-in Helvetica silently mangles non-Latin text and drops `•` and `—`
+> entirely. Inter is bundled and registered. See `context/library-docs.md`.
+
 ---
 
 ## Phase 3 — Find Jobs Page

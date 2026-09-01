@@ -128,6 +128,8 @@ export function parseProfileRow(row: unknown): Profile | null {
     work_authorization: parseWorkAuthorization(row.work_authorization),
     resume_pdf_url: asNullableString(row.resume_pdf_url),
     resume_pdf_key: asNullableString(row.resume_pdf_key),
+    generated_resume_url: asNullableString(row.generated_resume_url),
+    generated_resume_key: asNullableString(row.generated_resume_key),
     is_complete: row.is_complete === true,
   };
 }

@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@insforge/sdk/ssr";
 import { z } from "zod";
-import { env } from "@/lib/env";
+import { createAiClient } from "@/lib/insforge-ai";
 import { createInsforgeServer } from "@/lib/insforge-server";
 import {
   isEducationDegree,
@@ -65,17 +63,10 @@ const SIGNED_URL_TTL_SECONDS = 300;
  * Extraction measurably takes 20–40s. Without this the route inherits the
  * platform's serverless default (10s on Vercel Hobby, 15s on Pro) and is killed
  * in production even though local dev — which has no limit — passes every test.
- * Must stay >= AI_TIMEOUT_MS and within the hosting plan's ceiling.
+ * Must stay >= AI_TIMEOUT_MS (lib/insforge-ai.ts) and within the hosting
+ * plan's ceiling.
  */
 export const maxDuration = 120;
-
-/**
- * The SDK's HTTP client defaults to a 30s timeout, which a real multi-page CV
- * exceeds: the gateway has to fetch the PDF, parse it, and run the model.
- * Session reads keep the default — only this call needs the longer window, so
- * it gets its own client rather than loosening the shared one.
- */
-const AI_TIMEOUT_MS = 120_000;
 
 /**
  * Caps extraction output, the dominant cost driver at $2.50 per M output
@@ -84,16 +75,6 @@ const AI_TIMEOUT_MS = 120_000;
  * the unreadable-resume error rather than yielding partial data.
  */
 const EXTRACTION_MAX_TOKENS = 1536;
-
-async function createAiClient() {
-  const cookieStore = await cookies();
-  return createServerClient({
-    baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
-    anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
-    cookies: cookieStore,
-    timeout: AI_TIMEOUT_MS,
-  });
-}
 
 const AUTH_ERROR = "You must be signed in to extract from your resume.";
 const NO_RESUME_ERROR = "Upload a resume before extracting.";

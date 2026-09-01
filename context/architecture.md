@@ -56,7 +56,10 @@
 │       │   ├── find/route.ts              → Trigger Adzuna job discovery
 │       │   └── research/route.ts          → Trigger company research agent
 │       ├── resume/
-│       │   ├── generate/route.ts          → Generate base resume PDF from profile
+│       │   ├── generate/
+│       │   │   ├── route.ts               → Generate resume PDF from saved profile
+│       │   │   ├── resume-document.tsx    → PDF layout + renderResumePdf (server-only)
+│       │   │   └── fonts/                 → Inter Regular/SemiBold TTFs (see note)
 │       │   └── extract/route.ts           → Extract profile data from uploaded resume PDF (InsForge AI gateway, native PDF input)
 ├── agent/
 │   ├── adzuna.ts                          → Adzuna API job discovery + GPT-4o scoring
@@ -90,7 +93,7 @@
 │   ├── profile/
 │   │   ├── ProfileForm.tsx
 │   │   ├── ResumeUpload.tsx
-│   │   ├── ResumePreview.tsx
+│   │   ├── ResumePreview.tsx            → PLANNED, still unbuilt (see note below)
 │   │   └── CompletionIndicator.tsx
 │   ├── find-jobs/
 │   │   ├── SearchControls.tsx
@@ -105,7 +108,8 @@
 │       └── JobActions.tsx
 ├── lib/
 │   ├── insforge-client.ts                 → InsForge browser client instance
-│   ├── insforge-server.ts                 → InsForge server client
+│   ├── insforge-server.ts                 → InsForge server client (30s timeout; session/DB reads)
+│   ├── insforge-ai.ts                     → InsForge AI gateway client (120s timeout; AI routes only)
 │   ├── browserbase.ts                     → Browserbase session creation + management
 │   ├── stagehand.ts                       → Stagehand initialisation with Browserbase session
 │   ├── adzuna.ts                          → Adzuna API client
@@ -114,6 +118,22 @@
 └── types/
     └── index.ts                           → Global TypeScript types
 ```
+
+**`ResumePreview.tsx` is planned but still unbuilt.** Feature 06 deferred it
+because nothing displayed a stored resume yet. Feature 08 was the first feature
+that could have justified it and deliberately did not build it: the generated
+resume's download link lives in the Resume card's existing footer row, beside
+the button that produced it, and `context/designs/profile.png` shows only the
+empty-state card, so no design binds the decision. Build it when a feature needs
+to *display* a resume rather than link to one.
+
+**`app/api/resume/generate/fonts/` holds two Inter TTFs** (SIL Open Font
+License), registered with `Font.register` at render time. They are not
+decoration: `@react-pdf/renderer`'s built-in Helvetica is WinAnsi-only and
+silently mangles Cyrillic, drops the `•` bullet marker, and drops the `—` date
+separator. `next.config.ts` carries an `outputFileTracingIncludes` entry for
+them — nothing imports the files, so without it the serverless bundle ships
+without the fonts and fails only in production.
 
 ---
 
@@ -185,17 +205,22 @@ Page data revalidated
 ### Resume Operations (API Routes)
 
 ```
-User uploads resume or clicks Generate
-        ↓
-API route in app/api/resume/
-        ↓
-GPT-4o processes content
-        ↓
-@react-pdf/renderer renders PDF buffer
-        ↓
-New PDF uploaded to InsForge Storage
-        ↓
-URL saved to profiles table
+Upload (Feature 06)                Generate (Feature 08)
+uploadResume server action         POST /api/resume/generate
+        ↓                                   ↓
+PDF -> resumes/{uid}/resume.pdf    Reads saved profile; refuses if incomplete
+        ↓                                   ↓
+resume_pdf_url/key saved           InsForge AI gateway rewrites prose only
+                                            ↓
+                                   @react-pdf/renderer -> Buffer -> File
+                                            ↓
+                                   resumes/{uid}/generated-resume.pdf
+                                            ↓
+                                   generated_resume_url/key saved
+                                            ↓
+                                   Short-lived signed URL returned to browser
+
+The two paths never touch each other’s object or columns.
 ```
 
 ---
@@ -228,8 +253,10 @@ URL saved to profiles table
 | linkedin_url        | text        |                                              |
 | portfolio_url       | text        |                                              |
 | work_authorization  | text        | citizen / permanent_resident / visa_required |
-| resume_pdf_url      | text        | InsForge Storage URL of current resume       |
-| resume_pdf_key      | text        | InsForge Storage key (download/delete)       |
+| resume_pdf_url      | text        | Storage URL of the resume the user UPLOADED  |
+| resume_pdf_key      | text        | Storage key of the uploaded resume           |
+| generated_resume_url | text       | Storage URL of the app-GENERATED resume      |
+| generated_resume_key | text       | Storage key of the generated resume          |
 | is_complete         | boolean     | True when all required fields filled         |
 | created_at          | timestamptz |                                              |
 | updated_at          | timestamptz |                                              |
@@ -291,11 +318,20 @@ URL saved to profiles table
 
 ## InsForge Storage
 
-| Bucket  | Path                         | Contents                  |
-| ------- | ---------------------------- | ------------------------- |
-| resumes | resumes/{user_id}/resume.pdf | Current active resume PDF |
+| Bucket  | Path                                   | Contents                          |
+| ------- | -------------------------------------- | --------------------------------- |
+| resumes | resumes/{user_id}/resume.pdf           | The resume the user uploaded      |
+| resumes | resumes/{user_id}/generated-resume.pdf | The resume the app generated      |
 
-Access: authenticated users only, own files only.
+Access: authenticated users only, own files only. The bucket is **private** —
+the stored urls are records, not fetchable links; reads go through a
+short-lived signed URL.
+
+**These are two separate objects on purpose.** `resume_pdf_key` is what
+Feature 07 extraction reads, so writing a generated resume over it would
+destroy the user’s source CV and make extraction re-read the model’s own
+output. `context/build-plan.md` Feature 08 says to upsert over
+`resume.pdf`; that instruction predates Feature 07 and is superseded.
 
 ---
 
