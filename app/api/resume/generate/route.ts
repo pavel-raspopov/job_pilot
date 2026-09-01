@@ -1,5 +1,12 @@
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  AI_ROUTE,
+  checkAiRateLimit,
+  recordAiCall,
+  retryAfterPhrase,
+} from "@/lib/ai-rate-limit";
 import { createAiClient } from "@/lib/insforge-ai";
 import { createInsforgeServer } from "@/lib/insforge-server";
 import { parseProfileRow } from "@/lib/parse-profile";
@@ -8,6 +15,7 @@ import type { GenerateActionResult, Profile } from "@/types";
 import {
   MAX_BULLETS_PER_ROLE,
   renderResumePdf,
+  renderableRoles,
   type ResumeProse,
 } from "./resume-document";
 
@@ -67,6 +75,7 @@ const NO_PROFILE_ERROR =
 const INCOMPLETE_ERROR =
   "Complete the missing profile fields before generating a resume.";
 const SERVICE_ERROR = "Could not generate your resume. Please try again.";
+const RATE_LIMIT_ERROR = "Too many resumes generated in the last hour.";
 
 const PROMPT = [
   "You are rewriting a candidate's own profile data into resume prose.",
@@ -179,9 +188,19 @@ function toProse(parsed: z.infer<typeof proseSchema>): ResumeProse {
   return prose;
 }
 
-/** Only the facts the model is allowed to see — prose inputs, nothing more. */
+/**
+ * Only the facts the model is allowed to see — prose inputs, nothing more.
+ *
+ * `renderableRoles` rather than `profile.work_experience`: `role_index` is how
+ * the rewritten bullets find their way back to a role, so it has to index the
+ * list the document actually renders. Indexing the raw column meant a role the
+ * document drops (no company and no job title, which `stripBlankRoles` still
+ * persists) shifted every later role's bullets onto the wrong employer. Using
+ * one shared list makes that mismatch unrepresentable — and it also stops us
+ * paying the model to rewrite a role that will never be printed.
+ */
 function buildModelInput(profile: Profile): string {
-  const roles = (profile.work_experience ?? []).map((role, index) => ({
+  const roles = renderableRoles(profile).map((role, index) => ({
     role_index: index,
     job_title: role.job_title,
     company: role.company,
@@ -355,6 +374,25 @@ export async function POST(): Promise<NextResponse> {
       return fail(INCOMPLETE_ERROR);
     }
 
+    // After the completeness gate, so an incomplete profile still gets the
+    // message that actually helps. Everything below this line is billed.
+    const verdict = await checkAiRateLimit(
+      insforge,
+      userId,
+      AI_ROUTE.resumeGenerate,
+    );
+    if (!verdict.allowed) {
+      return fail(
+        `${RATE_LIMIT_ERROR} Please try again ${retryAfterPhrase(
+          verdict.retryAfterSeconds,
+        )}.`,
+      );
+    }
+
+    // Recorded before the call, not after: the rewrite is billed even when it
+    // fails and the document falls back to stored profile text.
+    await recordAiCall(insforge, userId, AI_ROUTE.resumeGenerate);
+
     const prose = await rewriteProse(profile);
     const buffer = await renderResumePdf(profile, prose);
 
@@ -408,6 +446,12 @@ export async function POST(): Promise<NextResponse> {
       console.error("[api/resume/generate] persist", persistError);
       return fail(SERVICE_ERROR);
     }
+
+    // `generated_resume_key` is what tells /profile to offer the download again
+    // on a later visit, and the page reads it server-side. Without this the
+    // freshly written pointer is invisible to the already-rendered page, so a
+    // soft navigation back could show no download for a document that exists.
+    revalidatePath("/profile");
 
     const { data: signed, error: signError } = await insforge.storage
       .from("resumes")

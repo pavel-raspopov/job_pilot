@@ -65,6 +65,23 @@ export type Profile = {
 };
 
 /**
+ * Education as a resume states it. Sub-fields the resume does not state are
+ * **absent**, not null or empty.
+ *
+ * That distinction is load-bearing: the form merges this over whatever the user
+ * already has, so an absent `degree` means "keep theirs" while `degree: null`
+ * would mean "clear theirs". Sending the full `Education` shape with null and
+ * "" placeholders collapsed the two, and a resume naming only an institution
+ * wiped a degree, field and year the user had already filled in.
+ */
+export type ExtractedEducation = {
+  degree?: EducationDegree;
+  field?: string;
+  institution?: string;
+  year?: string;
+};
+
+/**
  * Profile fields recovered from a resume PDF by `POST /api/resume/extract`.
  * Every field is optional: the resume states what it states, and anything
  * absent must be left alone rather than blanked.
@@ -85,7 +102,7 @@ export type ExtractedProfile = {
   remote_preference?: RemotePreference;
   preferred_locations?: string[];
   salary_expectation?: string;
-  education?: Education;
+  education?: ExtractedEducation;
   work_experience?: WorkExperienceRole[];
 };
 

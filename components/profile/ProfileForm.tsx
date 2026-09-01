@@ -1,11 +1,19 @@
 "use client";
 
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ChevronDown, Plus, X } from "lucide-react";
 import posthog from "posthog-js";
 import { saveProfile } from "@/actions/profile";
 import { ResumeUpload } from "@/components/profile/ResumeUpload";
+import {
+  isEducationDegree,
+  isExperienceLevel,
+  isRemotePreference,
+  isWorkAuthorization,
+} from "@/lib/profile-completion";
 import type {
+  Education,
+  ExtractedEducation,
   ExtractedProfile,
   Profile,
   WorkExperienceRole,
@@ -72,6 +80,122 @@ function draftFromProfile(profile: Profile | null): Draft {
     remote_preference: profile.remote_preference,
     preferred_locations: profile.preferred_locations,
     salary_expectation: profile.salary_expectation,
+  };
+}
+
+/**
+ * Reads one trimmed value out of a submitted form, mirroring `formText` in
+ * `actions/profile.ts` so a round trip through the form cannot change meaning.
+ */
+function formText(formData: FormData, key: string): string | null {
+  const value = formData.get(key);
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function formEnum<T extends string>(
+  formData: FormData,
+  key: string,
+  guard: (candidate: string) => candidate is T,
+): T | null {
+  const value = formText(formData, key);
+  return value !== null && guard(value) ? value : null;
+}
+
+function formList(formData: FormData, key: string): string[] {
+  const value = formText(formData, key);
+  if (value === null) {
+    return [];
+  }
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+/**
+ * The form as it stands on screen, read back into a `Draft`.
+ *
+ * The mapping deliberately matches what `saveProfile` does with the same field
+ * names, so reading the form and re-seeding it is lossless.
+ */
+function draftFromForm(form: HTMLFormElement): Draft {
+  const formData = new FormData(form);
+
+  const degree = formEnum(formData, "education_degree", isEducationDegree);
+  const field = formText(formData, "education_field");
+  const institution = formText(formData, "education_institution");
+  const year = formText(formData, "education_year");
+
+  const yearsRaw = formText(formData, "years_experience");
+  const years = yearsRaw === null ? null : Number(yearsRaw);
+
+  return {
+    full_name: formText(formData, "full_name"),
+    phone: formText(formData, "phone"),
+    location: formText(formData, "location"),
+    linkedin_url: formText(formData, "linkedin_url"),
+    portfolio_url: formText(formData, "portfolio_url"),
+    work_authorization: formEnum(
+      formData,
+      "work_authorization",
+      isWorkAuthorization,
+    ),
+    current_title: formText(formData, "current_title"),
+    experience_level: formEnum(
+      formData,
+      "experience_level",
+      isExperienceLevel,
+    ),
+    years_experience: years !== null && Number.isFinite(years) ? years : null,
+    education:
+      degree === null && field === null && institution === null && year === null
+        ? null
+        : {
+            degree,
+            field: field ?? "",
+            institution: institution ?? "",
+            year: year ?? "",
+          },
+    job_titles_seeking: formList(formData, "job_titles_seeking"),
+    remote_preference: formEnum(
+      formData,
+      "remote_preference",
+      isRemotePreference,
+    ),
+    preferred_locations: formList(formData, "preferred_locations"),
+    salary_expectation: formText(formData, "salary_expectation"),
+  };
+}
+
+/**
+ * Education, merged one sub-field at a time.
+ *
+ * `ExtractedEducation` omits what the resume does not state, so an absent key
+ * means "keep what the user has". Replacing the whole object instead meant a
+ * resume naming only an institution cleared a degree, field and graduation year
+ * the user had already filled in — quietly turning a complete profile
+ * incomplete, with nothing on screen to say a value had been dropped.
+ */
+function mergeEducation(
+  existing: Education | null | undefined,
+  extracted: ExtractedEducation | undefined,
+): Education | null {
+  if (extracted === undefined) {
+    return existing ?? null;
+  }
+
+  const base: Education =
+    existing ?? { degree: null, field: "", institution: "", year: "" };
+
+  return {
+    degree: extracted.degree ?? base.degree,
+    field: extracted.field ?? base.field,
+    institution: extracted.institution ?? base.institution,
+    year: extracted.year ?? base.year,
   };
 }
 
@@ -288,48 +412,82 @@ export function ProfileForm({
   const [saving, setSaving] = useState(false);
 
   /**
-   * Merge extracted values over the current draft and remount the form so the
-   * uncontrolled `defaultValue` inputs re-read it. Fields the resume did not
-   * state are left untouched rather than blanked.
+   * The live `<form>`, so extraction can read back what the user has typed
+   * before the remount throws those DOM nodes away.
+   */
+  const formRef = useRef<HTMLFormElement>(null);
+
+  /**
+   * Synchronous in-flight guard, same reason as `generatingRef` in
+   * `ResumeUpload`: `setSaving(true)` does not take effect until React
+   * re-renders, so two clicks landing in the same tick both read
+   * `saving === false` and both submit. On a first-ever save that means two
+   * concurrent inserts of the same primary key — one wins, the other comes back
+   * as a conflict, and the user is told the save failed on a save that
+   * succeeded. The `disabled` attribute alone cannot close that window.
+   */
+  const savingRef = useRef(false);
+
+  /**
+   * Merge extracted values over what is currently on screen, then remount the
+   * form so the uncontrolled `defaultValue` inputs re-read it. Fields the
+   * resume did not state keep the value they had.
    */
   const handleExtracted = (extracted: ExtractedProfile): void => {
-    setDraft((current) => ({
-      ...current,
-      ...(extracted.full_name !== undefined && { full_name: extracted.full_name }),
-      ...(extracted.phone !== undefined && { phone: extracted.phone }),
-      ...(extracted.location !== undefined && { location: extracted.location }),
-      ...(extracted.linkedin_url !== undefined && {
-        linkedin_url: extracted.linkedin_url,
-      }),
-      ...(extracted.portfolio_url !== undefined && {
-        portfolio_url: extracted.portfolio_url,
-      }),
-      ...(extracted.work_authorization !== undefined && {
-        work_authorization: extracted.work_authorization,
-      }),
-      ...(extracted.current_title !== undefined && {
-        current_title: extracted.current_title,
-      }),
-      ...(extracted.experience_level !== undefined && {
-        experience_level: extracted.experience_level,
-      }),
-      ...(extracted.years_experience !== undefined && {
-        years_experience: extracted.years_experience,
-      }),
-      ...(extracted.education !== undefined && { education: extracted.education }),
-      ...(extracted.job_titles_seeking !== undefined && {
-        job_titles_seeking: extracted.job_titles_seeking,
-      }),
-      ...(extracted.remote_preference !== undefined && {
-        remote_preference: extracted.remote_preference,
-      }),
-      ...(extracted.preferred_locations !== undefined && {
-        preferred_locations: extracted.preferred_locations,
-      }),
-      ...(extracted.salary_expectation !== undefined && {
-        salary_expectation: extracted.salary_expectation,
-      }),
-    }));
+    setDraft((storedDraft) => {
+      // Seed from the live form, not from the stored draft. The named inputs
+      // below are uncontrolled, so a value the user typed and has not saved
+      // exists only in the DOM — and bumping `formKey` destroys those nodes and
+      // re-seeds them from `draft`. Reading the form back first is what makes
+      // "fields the resume does not state are left as they were" true for typed
+      // input: without it, extracting a resume that states no phone number
+      // silently discarded a phone number the user had just entered, and the
+      // same went for all seventeen named fields.
+      const base =
+        formRef.current === null ? storedDraft : draftFromForm(formRef.current);
+
+      return {
+        ...base,
+        ...(extracted.full_name !== undefined && {
+          full_name: extracted.full_name,
+        }),
+        ...(extracted.phone !== undefined && { phone: extracted.phone }),
+        ...(extracted.location !== undefined && {
+          location: extracted.location,
+        }),
+        ...(extracted.linkedin_url !== undefined && {
+          linkedin_url: extracted.linkedin_url,
+        }),
+        ...(extracted.portfolio_url !== undefined && {
+          portfolio_url: extracted.portfolio_url,
+        }),
+        ...(extracted.work_authorization !== undefined && {
+          work_authorization: extracted.work_authorization,
+        }),
+        ...(extracted.current_title !== undefined && {
+          current_title: extracted.current_title,
+        }),
+        ...(extracted.experience_level !== undefined && {
+          experience_level: extracted.experience_level,
+        }),
+        ...(extracted.years_experience !== undefined && {
+          years_experience: extracted.years_experience,
+        }),
+        education: mergeEducation(base.education, extracted.education),
+        ...(extracted.job_titles_seeking !== undefined && {
+          job_titles_seeking: extracted.job_titles_seeking,
+        }),
+        ...(extracted.remote_preference !== undefined && {
+          remote_preference: extracted.remote_preference,
+        }),
+        ...(extracted.preferred_locations !== undefined && {
+          preferred_locations: extracted.preferred_locations,
+        }),
+        ...(extracted.salary_expectation !== undefined && {
+          salary_expectation: extracted.salary_expectation,
+        }),
+      };
+    });
 
     if (extracted.skills !== undefined) {
       setSkills(extracted.skills);
@@ -369,6 +527,12 @@ export function ProfileForm({
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> => {
     event.preventDefault();
+
+    if (savingRef.current) {
+      return;
+    }
+    savingRef.current = true;
+
     setError(null);
     setSaving(true);
 
@@ -387,6 +551,7 @@ export function ProfileForm({
     formData.set("work_experience", JSON.stringify(payloadRoles));
 
     const result = await saveProfile(formData);
+    savingRef.current = false;
     setSaving(false);
 
     if (!result.success) {
@@ -409,7 +574,7 @@ export function ProfileForm({
       />
 
       <section className="bg-surface border border-border rounded-2xl p-6 shadow-card">
-      <form key={formKey} onSubmit={handleSubmit}>
+      <form key={formKey} ref={formRef} onSubmit={handleSubmit}>
         <div className="border-b border-border pb-4">
           <h2 className="text-base font-semibold text-text-primary">
             Profile Information

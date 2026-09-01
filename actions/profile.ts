@@ -14,6 +14,13 @@ import {
 import type { Education, Profile, WorkExperienceRole } from "@/types";
 
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
+
+/**
+ * "%PDF-". Checked against the actual bytes because `File.type` is taken from
+ * the request's own multipart headers — a claim by the caller, not a fact about
+ * the file. The client-side check is for the user; this one is for the file.
+ */
+const PDF_SIGNATURE = [0x25, 0x50, 0x44, 0x46, 0x2d] as const;
 const SAVE_ERROR = "Failed to save profile";
 const UPLOAD_ERROR = "Failed to upload resume";
 
@@ -244,7 +251,10 @@ export async function saveProfile(
     const payload = {
       id: auth.userId,
       full_name: completionInput.full_name,
-      email: auth.email,
+      // Falls back to the stored address. The session is the authority on the
+      // user's email, but if it ever returns without one, writing null would
+      // erase a value that was already right.
+      email: auth.email ?? existing?.email ?? null,
       phone: completionInput.phone,
       location: completionInput.location,
       current_title: completionInput.current_title,
@@ -319,6 +329,13 @@ export async function uploadResume(
       return { success: false, error: "Resume must be 5MB or smaller." };
     }
 
+    const signature = new Uint8Array(
+      await fileValue.slice(0, PDF_SIGNATURE.length).arrayBuffer(),
+    );
+    if (!PDF_SIGNATURE.every((byte, index) => signature[index] === byte)) {
+      return { success: false, error: "Resume must be a PDF." };
+    }
+
     const objectPath = `${auth.userId}/resume.pdf`;
     const { data: uploaded, error: uploadError } = await auth.insforge.storage
       .from("resumes")
@@ -368,6 +385,12 @@ export async function uploadResume(
       }
     }
 
+    // Defensive, and currently unreachable: the object path is always
+    // `{userId}/resume.pdf`, and the SDK documents standard PUT semantics
+    // ("uploading to an existing key replaces the existing file"), so a
+    // replacement returns the same key and there is nothing left behind. It
+    // stays because the day the key scheme gains a hash or a timestamp is the
+    // day every previous upload starts leaking.
     if (previousKey !== null && previousKey !== uploaded.key) {
       const { error: removeError } = await auth.insforge.storage
         .from("resumes")

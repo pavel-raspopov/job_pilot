@@ -66,6 +66,19 @@ export function ResumeUpload({
   const generatingRef = useRef(false);
 
   /**
+   * Same guard, same reason, for the two other actions this card fires.
+   *
+   * Extraction is the more expensive of the two — it makes *two* gateway calls
+   * (the readability probe and the extraction itself) — so a double click here
+   * costs more than the double generation that first exposed the problem, and
+   * the second response overwrites the first in the form. Uploading twice at
+   * once races two writes at the same storage key. `disabled` is applied on the
+   * next render; a ref is applied now.
+   */
+  const extractingRef = useRef(false);
+  const uploadingRef = useRef(false);
+
+  /**
    * A resume generated in an earlier visit is recorded on the profile, but its
    * download link is signed and long expired. Fetch a fresh one on mount so the
    * user can reach the existing document without paying for another model call.
@@ -124,6 +137,11 @@ export function ResumeUpload({
   };
 
   const handleExtract = async (): Promise<void> => {
+    if (extractingRef.current) {
+      return;
+    }
+    extractingRef.current = true;
+
     setError(null);
     setExtracting(true);
 
@@ -140,6 +158,7 @@ export function ResumeUpload({
     } catch {
       setError("Failed to extract from resume");
     } finally {
+      extractingRef.current = false;
       setExtracting(false);
     }
   };
@@ -151,11 +170,19 @@ export function ResumeUpload({
       return;
     }
 
+    // The dropzone stays droppable while an upload is in flight — the file
+    // input is disabled, but a drag-and-drop does not go through it.
+    if (uploadingRef.current) {
+      return;
+    }
+    uploadingRef.current = true;
+
     setError(null);
     setUploading(true);
     const formData = new FormData();
     formData.set("resume", file);
     const result = await uploadResume(formData);
+    uploadingRef.current = false;
     setUploading(false);
 
     if (!result.success) {

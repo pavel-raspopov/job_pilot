@@ -128,6 +128,30 @@ export async function POST(req: NextRequest) {
 - Always return `{ success: boolean, data?: T, error?: string }`
 - Never return raw data without the success wrapper
 
+### Routes that call the AI gateway
+
+Three things are **mandatory**, and each of them has already cost this project a
+real bug or a real risk:
+
+1. **`export const maxDuration`**, at least `AI_TIMEOUT_MS` (`lib/insforge-ai.ts`).
+   Without it the route inherits the platform default (10s on Vercel Hobby) and
+   dies in production while passing every local test, because dev has no limit.
+2. **A rate-limit check.** Add a key to `AI_ROUTE` and a limit to `LIMITS` in
+   `lib/ai-rate-limit.ts`, then call `checkAiRateLimit` before the first model
+   call and `recordAiCall` immediately before it. Place the check *after* the
+   free failure cases — a user with no resume should get "upload a resume", not
+   "too many requests". Client-side `useRef` guards stop a double click; they do
+   not stop a `for` loop against the endpoint, and every call is billed.
+3. **A synchronous in-flight guard in the UI** — a `useRef`, not just
+   `disabled`. `setState` lands a render later, so two clicks in one tick both
+   read the old value and both fire. This was measured: a double click sent two
+   POSTs and two billed calls.
+
+Model choice is a measurement, not a preference: benchmark candidates on real
+input and record the numbers in a comment above the constant (see
+`EXTRACTION_MODEL` and `GENERATION_MODEL`). Cap output with `maxTokens` —
+output is the dominant cost.
+
 ---
 
 ## Server Actions
@@ -314,6 +338,7 @@ Approved dependencies for this project:
 - `@browserbasehq/sdk` — Browserbase sessions
 - `@browserbasehq/stagehand` — AI browser control
 - AI models — via `insforge.ai.chat.completions.create` (InsForge AI gateway). No `openai` package and no `OPENAI_API_KEY`.
+- Rate limiting for AI routes — `lib/ai-rate-limit.ts`. **Mandatory on every route that calls the gateway** (see the rule below).
 - `posthog-js` — PostHog browser client
 - `posthog-node` — PostHog server client
 - `@react-pdf/renderer` — Resume PDF generation

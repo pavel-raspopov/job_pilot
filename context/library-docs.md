@@ -252,7 +252,7 @@ const jobRecord = {
 - Never pass `where` if location is empty — omit the parameter entirely
 - `source` is always `'search'` for Adzuna jobs — never any other value
 - `salary_is_predicted: "1"` means Adzuna estimated the salary — this is normal
-- Adzuna description is a snippet — GPT-4o scores from it, not a full description
+- Adzuna description is a snippet — the model scores from it, not a full description
 - Default country to `'us'` — support `gb`, `au`, `ca` as alternatives
 
 ---
@@ -294,6 +294,18 @@ Browserbase sessions run on Browserbase's cloud infrastructure, not inside your 
 
 ### Initialisation
 
+> **UNRESOLVED — settle this before Feature 13 writes any code.** The model
+> configuration below used to name `gpt-4o` and `process.env.OPENAI_API_KEY`,
+> neither of which exists in this project: `code-standards.md` states there is
+> no `openai` package and no `OPENAI_API_KEY`, because every model call goes
+> through the InsForge AI gateway (Feature 07). Stagehand constructs its own LLM
+> client, so it cannot call `insforge.ai.chat.completions.create` the way the
+> AI routes do — which means the mechanism is a real open decision, not a
+> copy-paste detail. Settle it in `/opsx-propose` for Feature 13; the likely
+> route is pointing Stagehand's OpenAI-compatible client at a gateway base URL.
+> Until then the fields are placeholders on purpose. **Do not reintroduce
+> `OPENAI_API_KEY`.**
+
 ```typescript
 import { Stagehand } from "@browserbasehq/stagehand";
 
@@ -302,7 +314,8 @@ const stagehand = new Stagehand({
   apiKey: process.env.BROWSERBASE_API_KEY!,
   projectId: process.env.BROWSERBASE_PROJECT_ID!,
   browserbaseSessionID: session.id,
-  model: { modelName: "openai/gpt-4o", apiKey: process.env.OPENAI_API_KEY! },
+  // UNRESOLVED — see the note above. This project has no OPENAI_API_KEY.
+  model: { modelName: "<settle in Feature 13>" },
   disablePino: true,
 });
 
@@ -355,7 +368,7 @@ Replace the existing Stagehand "Company Research Pattern" section in library-doc
 
 ### Company Research Pattern
 
-Three-step process: homepage extraction → sub-page extraction → GPT-4o synthesis.
+Three-step process: homepage extraction → sub-page extraction → AI gateway synthesis.
 Job description and user profile come from DB — never re-fetch what you already have.
 Browser's only job is the company website.
 
@@ -416,7 +429,7 @@ const subPageData = await stagehand.extract({
   }),
 });
 
-// Step 3 — GPT-4o synthesis (after browser closes)
+// Step 3 — AI gateway synthesis (after browser closes)
 // Feed three data sources: company research + job from DB + profile from DB
 const systemPrompt = `You are a sharp career strategist preparing a candidate to apply for a specific role. You are given (a) research collected from the company's own website, (b) the job posting, and (c) the candidate's profile. Produce a concise, concrete briefing that gives this specific candidate an edge for this specific role.
 
@@ -787,6 +800,36 @@ outputFileTracingIncludes: {
 ```
 
 ### Supported CSS properties
+
+### "One page" is not a layout property — measure it
+
+`<Page>` has no overflow guard: content that does not fit simply starts a second
+page, and nothing errors. A "single-page PDF" requirement therefore cannot be met
+by choosing a bullet cap and hoping — measured on this layout, 3 roles × 6
+one-line bullets alongside a 43-skill profile is 2 pages while the same profile
+with 2 roles is 1 page, so the fit depends on the profile.
+
+`renderResumePdf` renders, counts pages, and retries at a tighter budget until it
+fits (`PAGE_FIT_LADDER`). Two things worth copying if another feature ever emits
+a document:
+
+- **Read the page count from the PDF, not from the component.** `@react-pdf`
+  exposes no page count and its `onRender` callback is browser-only, so the count
+  comes from the page tree's `/Count` in the rendered bytes.
+- **Tighten the type before dropping content.** The stylesheet is built by a
+  `buildStyles(density)` factory that scales every point measurement, so a
+  retry can compress the layout instead of deleting a candidate's achievements.
+  Note that a `NaN` measurement does not throw — `@react-pdf/stylesheet` logs a
+  parse error and renders the document without that property, so a missing
+  density silently changes the layout. TypeScript is the guard: keep such fields
+  required.
+
+Local re-renders are cheap and repeat no model call, so a fit loop costs CPU
+only. Verify a layout change by rendering the worst realistic profile and
+counting pages — a fixture that happens to fit proves nothing about one that
+does not.
+
+### Style property support
 
 The earlier claim in this doc — that only 14 properties work and "others are silently ignored" — is **wrong**, verified against `node_modules/@react-pdf/stylesheet/lib/index.d.ts`. `borderBottomWidth`, `borderBottomColor`, `marginBottom`, `letterSpacing`, `textTransform`, and `flexWrap` are all typed and all render. Check the stylesheet package's types rather than trusting a fixed list; TypeScript rejects an unsupported property at build time.
 

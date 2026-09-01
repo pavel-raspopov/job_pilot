@@ -50,6 +50,105 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ## Decisions Made During Build
 
+- **Phase 2 adversarial review — 11 findings, 10 fixed (2026-09-01).** A
+  `/feature-review` pass over Features 05–08 as an adversarial reviewer (now the
+  skill's default). Two findings were proven by compiling
+  `resume-document.tsx` outside Next.js and rendering synthetic profiles, rather
+  than argued from the source.
+
+  **The generated resume printed one job's achievements under another employer.**
+  `buildModelInput` indexed `profile.work_experience` unfiltered while the
+  document rendered a *filtered* list and looked bullets up by the filtered
+  index. Any dropped role — one with neither company nor job title, which
+  `stripBlankRoles` still persists — shifted every later role's bullets by one.
+  Demonstrated: with a ghost role first, bullets addressed to the real employer
+  were discarded (output byte-identical to the no-prose baseline apart from the
+  PDF `/ID`) and the ghost role's bullets were printed in its place. Fixed with
+  one exported `renderableRoles(profile)` that both the route and the document
+  derive from, so the mismatch is now unrepresentable. **Feature 13 note:** when
+  a model's output is keyed by position into a list, exactly one function may
+  compute that list.
+
+  **The "single-page" PDF was two pages, and raising `MAX_BULLETS_PER_ROLE` from
+  4 to 6 caused it.** Measured: 3 roles × 6 one-line bullets + 43 skills → 2
+  pages; the same profile with 2 roles → 1 page. The fixture profile has 43
+  skills and *two* roles, which is exactly why manual verification missed it.
+  Fixed by construction rather than by picking a new constant:
+  `renderResumePdf` now renders, counts pages from the PDF page tree, and steps
+  down `PAGE_FIT_LADDER` until it fits. The ladder **tightens type before it
+  drops a bullet** — a denser resume still says everything the candidate did.
+  Its first rung is the previous behaviour, so anything that already fitted
+  renders byte-identically. Verified 1 page at 3 roles × 6 wrapping bullets +
+  100 skills, and verified that a profile which fits is not trimmed.
+
+  **Extraction was destroying values the user had typed.** `handleExtracted`
+  bumps `formKey` to remount the form; the 17 named inputs are uncontrolled, so
+  their DOM values were discarded and re-seeded from stored data. Typing a phone
+  number and then extracting a resume that states no phone silently erased it.
+  `draftFromForm` now reads the live form back before merging. Separately,
+  `ExtractedProfile.education` is a new `ExtractedEducation` whose unstated
+  sub-fields are **absent** rather than `null`/`""`, merged per sub-field — a
+  resume naming only an institution used to clear a stored degree, field and
+  year, quietly turning a complete profile incomplete.
+
+  **The in-flight ref guard was applied to one button out of four.** Extract,
+  Save and drag-and-drop upload all still relied on `disabled`, which lands a
+  render too late — the exact defect fixed for Generate. Extraction is the
+  costlier one (probe + extraction = two gateway calls), and a double first-ever
+  Save raced two inserts of the same primary key, reporting failure on a save
+  that succeeded. All four now hold a `useRef`. **Rule for Features 10 and 13:
+  every billed action needs a ref, not a `disabled` attribute.**
+
+  Also: server-side PDF magic-byte check (`File.type` is a caller's claim, not a
+  fact about the bytes); `saveProfile` no longer writes a null email over a
+  stored one; the generate route calls `revalidatePath("/profile")` so the
+  freshly written `generated_resume_key` is visible to the page; and the
+  `OPENAI_API_KEY` snippets left live in `architecture.md` and
+  `library-docs.md` — which contradict `code-standards.md` and were the next
+  thing Feature 13 would have copied — are now placeholders under an explicit
+  UNRESOLVED note.
+
+  **Server-side rate limiting for AI routes (the eleventh finding).** The
+  client's ref guards stop an accidental double click but not a `for` loop
+  against the endpoint, and every gateway call is billed against a $1/month
+  credit. New table `ai_usage` (migration `004`, **applied**) holds one row per
+  billed call; `lib/ai-rate-limit.ts` holds the limits and both helpers. Not in
+  process memory, deliberately — serverless instances share none, so an
+  in-memory counter is per-instance and therefore not a limit.
+
+  Design points worth keeping. **A log, not a counter per window:** append-only,
+  so the check never read-modify-writes shared state, and it doubles as the cost
+  telemetry Features 10 and 13 will want. **One round trip:** PostgREST returns
+  an exact count alongside the rows, so `limit(1)` on an ascending order yields
+  both "how many in the window" and "the oldest one in it" — and the oldest is
+  what determines when a slot frees up. **RLS is select-own and insert-own with
+  no update or delete policy** — a limit a user can clear is not a limit, and a
+  user inserting spurious rows only lowers their own quota. **`route` has no
+  CHECK constraint**, unlike the other enum-ish columns here, because otherwise
+  every new AI route becomes a migration; the closed set is `AI_ROUTE` in
+  TypeScript. **The check sits after the free failure cases** so a user with no
+  resume still gets "upload a resume", not "too many requests". **Recorded
+  before the call, not after**, because the cost lands whether or not the result
+  is usable. **Fails open** if its own count query errors: a cost guard that
+  takes the feature down when its bookkeeping hiccups is worse than one that
+  occasionally lets a call through.
+
+  Verified live against the real backend, one billed generation total: ten
+  synthetic rows in the window → Generate refused in under 4s with "try again in
+  about 47 minutes" and **no gateway call**; the pre-cleanup count was still
+  exactly ten, proving a refused request does not count against the limit; after
+  clearing, one real generation produced a **1-page** PDF, offered the signed
+  download, and recorded exactly one row scoped to that user.
+
+  `openspec/specs/profile/spec.md` gained an **AI request rate limiting**
+  requirement. Note that it was edited directly rather than through a change
+  under `openspec/changes/` — there was no active change to attach it to. Worth
+  reconstructing as a retroactive change if the paper trail matters.
+
+  **Retention is unhandled:** rows outlive their window and nothing prunes them
+  (~240/user/day at the current limits). The cleanup statement is in the
+  migration, waiting for a scheduled job.
+
 - **Feature 08 Resume PDF Generation from Profile (2026-09-01).** `POST /api/resume/generate` reads the saved profile, has the InsForge AI gateway rewrite it into prose, renders a one-page PDF with `@react-pdf/renderer`, uploads it, and returns a 300s signed URL. Migration `003` adds `generated_resume_url` / `generated_resume_key`. Phase 2 is complete.
 
   **Two storage slots, not one — this is the load-bearing decision.** `build-plan.md` Feature 08 says to upsert the generated PDF over `resumes/{user_id}/resume.pdf`. That object is the CV the user uploaded in Feature 06, and its key is exactly what Feature 07's extraction reads, so following the plan would have deleted the user's source document and made "Extract from Resume" re-extract the model's own output, degrading further every round. Built instead: `generated-resume.pdf` alongside `resume.pdf`, each with its own url/key pair. Verified after 8 generations — `resume_pdf_key` and its url hash byte-identical, `resume.pdf` still carrying its original upload timestamp, and extraction still returning the *uploaded* CV's title ("Frontend / Full-Stack Engineer", which differs from the generated PDF's "Front-end Engineer" — proof it read the right file).
@@ -64,7 +163,7 @@ Update this file after every completed feature. Any AI agent reading this should
 
   **UI.** The inert "Generate Resume from Profile" CTA is live, gated on the computed `getProfileCompletion(...).isComplete` (the same helper the attention banner uses, so gate and banner cannot disagree) rather than the persisted `is_complete` flag. Download is a short-lived signed link — the bucket is private and the stored url returns 401. No new component files; no new PostHog event. The **Inert primary CTA** pattern in `ui-registry.md` is retired: this was its only user, and a real `disabled` button is announced to assistive tech where a permanently-styled fake one is not.
 
-- **Feature 07 AI Profile Extraction from Resume (2026-08-28).** Extraction runs through the **InsForge AI gateway** (`insforge.ai.chat.completions.create`), not OpenAI directly — no `OPENAI_API_KEY`, no `openai` package, no `pdf-parse`. The PDF is sent natively as a `file` part with `fileParser`, via a 5-minute signed storage URL that is never returned to the browser. `architecture.md`, `code-standards.md`, and `library-docs.md` were reconciled to match; the legacy OpenAI and pdf-parse sections are marked SUPERSEDED. Two model constants, both benchmarked rather than guessed: `EXTRACTION_MODEL` = `google/gemini-2.5-flash` (only candidate scoring 8/8 on ground-truth checks) and `PROBE_MODEL` = `google/gemini-2.5-flash-lite` at `maxTokens: 16`. Roughly **$0.0017 per extraction**, about 580 on the free plan's $1/month credit. **Do not downgrade the extraction model for cost** — `flash-lite` misspelled the surname and got the city wrong, `gpt-4o-mini` dropped LinkedIn/degree/institution, `gpt-5-nano` never calls the tool. Table in `context/library-docs.md`.
+- **Feature 07 AI Profile Extraction from Resume (2026-08-28).** Extraction runs through the **InsForge AI gateway** (`insforge.ai.chat.completions.create`), not OpenAI directly — no `OPENAI_API_KEY`, no `openai` package, no `pdf-parse`. The PDF is sent natively as a `file` part with `fileParser`, via a 5-minute signed storage URL that is never returned to the browser. `architecture.md`, `code-standards.md`, and `library-docs.md` were reconciled to match; the legacy OpenAI and pdf-parse sections are marked SUPERSEDED. Two model constants, both benchmarked rather than guessed: `EXTRACTION_MODEL` = `google/gemini-2.5-flash` (only candidate scoring 8/8 on ground-truth checks) and `PROBE_MODEL` = `google/gemini-2.5-flash-lite` at `maxTokens: 24`. Roughly **$0.0017 per extraction**, about 580 on the free plan's $1/month credit. **Do not downgrade the extraction model for cost** — `flash-lite` misspelled the surname and got the city wrong, `gpt-4o-mini` dropped LinkedIn/degree/institution, `gpt-5-nano` never calls the tool. Table in `context/library-docs.md`.
 
   **Extract vs. Skip reconciled.** `project-overview.md` describes two options on upload (Extract / Skip), `build-plan.md` describes one Extract button, and `designs/profile.png` shows only the empty state and is silent. Built a single Extract action: Feature 06 already stores the resume on file-select, so a Skip button would perform no action.
 

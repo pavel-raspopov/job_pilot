@@ -62,10 +62,10 @@
 │       │   │   └── fonts/                 → Inter Regular/SemiBold TTFs (see note)
 │       │   └── extract/route.ts           → Extract profile data from uploaded resume PDF (InsForge AI gateway, native PDF input)
 ├── agent/
-│   ├── adzuna.ts                          → Adzuna API job discovery + GPT-4o scoring
-│   ├── research.ts                        → Company research — Browserbase + Stagehand + GPT-4o
-│   ├── matcher.ts                         → GPT-4o job matching logic
-│   ├── extractor.ts                       → GPT-4o job description extraction + structuring
+│   ├── adzuna.ts                          → Adzuna API job discovery + AI gateway scoring
+│   ├── research.ts                        → Company research — Browserbase + Stagehand + AI gateway
+│   ├── matcher.ts                         → Job matching logic (InsForge AI gateway)
+│   ├── extractor.ts                       → Job description extraction + structuring (AI gateway)
 │   └── types.ts                           → Agent-specific TypeScript types
 ├── actions/
 │   ├── auth.ts                            → signInWithOAuthAction, signOutAction
@@ -175,7 +175,7 @@ Calls agent/adzuna.ts
         ↓
 Adzuna API returns job listings
         ↓
-GPT-4o scores each job against user profile
+InsForge AI gateway scores each job against user profile
         ↓
 Agent writes results to InsForge DB
         ↓
@@ -195,7 +195,7 @@ Single Browserbase session opens with Stagehand
         ↓
 Navigates to company homepage + sub pages
         ↓
-GPT-4o synthesizes dossier from extracted content
+InsForge AI gateway synthesizes dossier from extracted content
         ↓
 Dossier saved to jobs.company_research
         ↓
@@ -296,7 +296,7 @@ The two paths never touch each other’s object or columns.
 | benefits           | text[]      | Optional                                       |
 | about_company      | text        | Brief company description                      |
 | match_score        | integer     | 0-100 scored against main profile              |
-| match_reason       | text        | GPT-4o explanation                             |
+| match_reason       | text        | Model's explanation                            |
 | matched_skills     | text[]      | Skills user has that match                     |
 | missing_skills     | text[]      | Skills user lacks                              |
 | company_research   | jsonb       | Company dossier from research agent            |
@@ -313,6 +313,27 @@ The two paths never touch each other’s object or columns.
 | level      | text        | info / success / warning / error |
 | job_id     | uuid        | Optional — related job           |
 | created_at | timestamptz |                                  |
+
+### `ai_usage`
+
+One row per **billed** InsForge AI gateway call. Backs the per-user rate limit in
+`lib/ai-rate-limit.ts`; SQL in `db/migrations/004_add_ai_usage.sql`.
+
+| Column     | Type        | Notes                                            |
+| ---------- | ----------- | ------------------------------------------------ |
+| id         | uuid        |                                                  |
+| user_id    | uuid        | References auth.users, ON DELETE CASCADE         |
+| route      | text        | Route key — `AI_ROUTE` in `lib/ai-rate-limit.ts` |
+| created_at | timestamptz | Rolling-window anchor                            |
+
+`route` has **no CHECK constraint**, unlike the other enum-ish columns in this
+schema: Features 10 and 13 add AI routes of their own, and a CHECK would make
+every one of them a migration. The closed set lives in TypeScript.
+
+RLS: select-own and insert-own only. **No update and no delete policy** — a limit
+a user can clear is not a limit. Rows outlive their window and nothing prunes
+them; the cleanup statement is in the migration, for a scheduled job when one
+exists.
 
 ---
 
@@ -430,6 +451,18 @@ const data = await response.json();
 
 ## Company Research Pattern
 
+> **UNRESOLVED — settle this before Feature 13 writes any code.** The model
+> configuration below used to name `gpt-4o` and `process.env.OPENAI_API_KEY`,
+> neither of which exists in this project: `code-standards.md` states there is
+> no `openai` package and no `OPENAI_API_KEY`, because every model call goes
+> through the InsForge AI gateway (Feature 07). Stagehand constructs its own LLM
+> client, so it cannot call `insforge.ai.chat.completions.create` the way the
+> AI routes do — which means the mechanism is a real open decision, not a
+> copy-paste detail. Settle it in `/opsx-propose` for Feature 13; the likely
+> route is pointing Stagehand's OpenAI-compatible client at a gateway base URL.
+> Until then the fields are placeholders on purpose. **Do not reintroduce
+> `OPENAI_API_KEY`.**
+
 ```typescript
 // Single session — visits company homepage and sub pages sequentially
 const stagehand = new Stagehand({
@@ -437,8 +470,9 @@ const stagehand = new Stagehand({
   apiKey: process.env.BROWSERBASE_API_KEY!,
   projectId: process.env.BROWSERBASE_PROJECT_ID!,
   browserbaseSessionID: session.id,
-  modelName: "gpt-4o",
-  modelClientOptions: { apiKey: process.env.OPENAI_API_KEY! },
+  // UNRESOLVED — see the note above. This project has no OPENAI_API_KEY.
+  modelName: "<settle in Feature 13>",
+  modelClientOptions: { /* gateway-backed client — mechanism undecided */ },
 });
 
 await stagehand.init();
@@ -459,7 +493,7 @@ try {
   await page.waitForLoadState("networkidle");
   const content = await stagehand.extract({ instruction: "..." });
 } catch (error) {
-  // Log and continue — GPT-4o will synthesize from what was found
+  // Log and continue — synthesis runs on whatever was found
   await logAgentError(jobId, error);
 }
 
@@ -479,7 +513,7 @@ Rules the AI agent must never violate:
 - All InsForge server-side writes use `createInsforgeServer()` — never the browser client.
 - No hardcoded hex values or raw Tailwind color classes in components — use CSS variables from ui-tokens.md.
 - Every Stagehand action is wrapped in try/catch. Failures are logged to agent_logs, never thrown to crash the run.
-- Company research always returns a dossier — even if browser research fails, GPT-4o synthesizes from company name and job description alone. Never return empty.
+- Company research always returns a dossier — even if browser research fails, the AI gateway synthesizes from company name and job description alone. Never return empty.
 - Browserbase sessions are always closed with stagehand.close() when done — never leave sessions open.
 - Always scope InsForge queries to the current user_id — never query without a user filter.
 - Adzuna API always includes category=it-jobs — never search without this filter.

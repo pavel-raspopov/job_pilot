@@ -82,116 +82,154 @@ Font.register({
 // words mid-glyph. Returning the word whole is the documented opt-out.
 Font.registerHyphenationCallback((word) => [word]);
 
-const styles = StyleSheet.create({
-  page: {
-    paddingVertical: 40,
-    paddingHorizontal: 48,
-    fontFamily: FONT_FAMILY,
-    fontSize: 9.5,
-    lineHeight: 1.5,
-    color: COLOR.textDark,
-  },
+/**
+ * The stylesheet at a given typographic density.
+ *
+ * `density` scales every point measurement — type sizes, page padding, section
+ * and bullet spacing — while leaving unitless line heights and hairline borders
+ * alone. 1 is the designed layout.
+ *
+ * It exists because the resume has to fit one page and trimming bullets is not
+ * always enough to get it there: three roles of two-line bullets alongside a
+ * 43-skill profile overflows even at three bullets per role. Tightening the
+ * type is what a typesetter does in that situation, and it is strictly better
+ * than deleting a candidate's achievements to make room.
+ */
+function buildStyles(density: number) {
+  /** Scales a point measurement, keeping two decimals. */
+  const pt = (value: number): number =>
+    Math.round(value * density * 100) / 100;
 
-  name: {
-    fontSize: 22,
-    fontFamily: FONT_FAMILY,
-    fontWeight: 600,
-    color: COLOR.textPrimary,
-    // Explicit, and not inherited. The page's lineHeight: 1.5 did not give this
-    // 22pt line a tall enough box: the name's baseline landed 6pt above the
-    // title's and the two overlapped on the rendered page.
-    lineHeight: 1.25,
-  },
-  title: {
-    fontSize: 11,
-    color: COLOR.accent,
-    marginTop: 4,
-  },
-  contact: {
-    fontSize: 9,
-    color: COLOR.textSecondary,
-    marginTop: 6,
-  },
-  headerRule: {
-    marginTop: 14,
-    marginBottom: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: COLOR.border,
-  },
+  return StyleSheet.create({
+    page: {
+      paddingVertical: pt(40),
+      paddingHorizontal: pt(48),
+      fontFamily: FONT_FAMILY,
+      fontSize: pt(9.5),
+      lineHeight: 1.5,
+      color: COLOR.textDark,
+    },
 
-  section: { marginBottom: 16 },
-  sectionHeading: {
-    fontSize: 9,
-    fontFamily: FONT_FAMILY,
-    fontWeight: 600,
-    color: COLOR.textPrimary,
-    textTransform: "uppercase",
-    // No letterSpacing, deliberately. It looked better but each glyph became
-    // its own positioned run, so text extraction returned "S U M M A RY" and
-    // "E D U CAT I O N". Applicant tracking systems find sections by matching
-    // headings like "EXPERIENCE"; a resume that reads well to a human and
-    // parses as noise to a machine has failed at its actual job. Uppercase,
-    // semibold, and the size step carry the hierarchy on their own.
-    marginBottom: 7,
-  },
+    name: {
+      fontSize: pt(22),
+      fontFamily: FONT_FAMILY,
+      fontWeight: 600,
+      color: COLOR.textPrimary,
+      // Explicit, and not inherited. The page's lineHeight: 1.5 did not give
+      // this 22pt line a tall enough box: the name's baseline landed 6pt above
+      // the title's and the two overlapped on the rendered page.
+      lineHeight: 1.25,
+    },
+    title: {
+      fontSize: pt(11),
+      color: COLOR.accent,
+      marginTop: pt(4),
+    },
+    contact: {
+      fontSize: pt(9),
+      color: COLOR.textSecondary,
+      marginTop: pt(6),
+    },
+    headerRule: {
+      marginTop: pt(14),
+      marginBottom: pt(18),
+      borderBottomWidth: 1,
+      borderBottomColor: COLOR.border,
+    },
 
-  role: { marginBottom: 11 },
-  roleHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  roleTitle: {
-    fontSize: 10.5,
-    fontFamily: FONT_FAMILY,
-    fontWeight: 600,
-    color: COLOR.textPrimary,
-  },
-  roleCompany: {
-    fontSize: 9.5,
-    color: COLOR.textSecondary,
-  },
-  roleDates: {
-    fontSize: 8.5,
-    color: COLOR.textSecondary,
-  },
+    section: { marginBottom: pt(16) },
+    sectionHeading: {
+      fontSize: pt(9),
+      fontFamily: FONT_FAMILY,
+      fontWeight: 600,
+      color: COLOR.textPrimary,
+      textTransform: "uppercase",
+      // No letterSpacing, deliberately. It looked better but each glyph became
+      // its own positioned run, so text extraction returned "S U M M A RY" and
+      // "E D U CAT I O N". Applicant tracking systems find sections by matching
+      // headings like "EXPERIENCE"; a resume that reads well to a human and
+      // parses as noise to a machine has failed at its actual job. Uppercase,
+      // semibold, and the size step carry the hierarchy on their own.
+      marginBottom: pt(7),
+    },
 
-  bulletRow: {
-    flexDirection: "row",
-    marginTop: 3,
-  },
-  bulletMark: {
-    width: 10,
-    color: COLOR.accent,
-  },
-  bulletText: { flex: 1 },
+    role: { marginBottom: pt(11) },
+    roleHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+    },
+    roleTitle: {
+      fontSize: pt(10.5),
+      fontFamily: FONT_FAMILY,
+      fontWeight: 600,
+      color: COLOR.textPrimary,
+    },
+    roleCompany: {
+      fontSize: pt(9.5),
+      color: COLOR.textSecondary,
+    },
+    roleDates: {
+      fontSize: pt(8.5),
+      color: COLOR.textSecondary,
+    },
 
-  // Skills render as discrete items in a wrapping row rather than one long
-  // joined string. The joined form was being wrap-hyphenated despite
-  // registerHyphenationCallback, leaving "jQuery-" and "MongoDB ·-" at line
-  // ends. Discrete items cannot break mid-token, so the artifact cannot occur.
-  skillRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  // No separator element. An interleaved "·" Text doubles the flex-item count
-  // and adds its own margin on both sides: with the fixture's 43 skills that
-  // pushed the whole section onto a second page. Spacing alone separates them.
-  skill: {
-    fontSize: 9,
-    marginRight: 8,
-    marginBottom: 2,
-    color: COLOR.textDark,
-  },
+    bulletRow: {
+      flexDirection: "row",
+      marginTop: pt(3),
+    },
+    bulletMark: {
+      width: pt(10),
+      color: COLOR.accent,
+    },
+    bulletText: { flex: 1 },
 
-  educationLine: { marginBottom: 3 },
-  educationDegree: {
-    fontSize: 10,
-    fontFamily: FONT_FAMILY,
-    fontWeight: 600,
-    color: COLOR.textPrimary,
-  },
-});
+    // Skills render as discrete items in a wrapping row rather than one long
+    // joined string. The joined form was being wrap-hyphenated despite
+    // registerHyphenationCallback, leaving "jQuery-" and "MongoDB ·-" at line
+    // ends. Discrete items cannot break mid-token, so the artifact cannot occur.
+    skillRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+    },
+    // No separator element. An interleaved "·" Text doubles the flex-item count
+    // and adds its own margin on both sides: with the fixture's 43 skills that
+    // pushed the whole section onto a second page. Spacing alone separates them.
+    skill: {
+      fontSize: pt(9),
+      marginRight: pt(8),
+      marginBottom: pt(2),
+      color: COLOR.textDark,
+    },
+
+    educationLine: { marginBottom: pt(3) },
+    educationDegree: {
+      fontSize: pt(10),
+      fontFamily: FONT_FAMILY,
+      fontWeight: 600,
+      color: COLOR.textPrimary,
+    },
+  });
+}
+
+type Styles = ReturnType<typeof buildStyles>;
+
+/**
+ * Built stylesheets, keyed by density. `StyleSheet.create` is not free and the
+ * fit loop renders the same few densities repeatedly, sometimes within one
+ * request.
+ */
+const STYLE_CACHE = new Map<number, Styles>();
+
+function stylesFor(density: number): Styles {
+  const cached = STYLE_CACHE.get(density);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const built = buildStyles(density);
+  STYLE_CACHE.set(density, built);
+  return built;
+}
 
 /** Rewritten prose from the model. Every part is optional — see decision 3. */
 export type ResumeProse = {
@@ -210,6 +248,28 @@ const DEGREE_LABEL: Record<NonNullable<Education["degree"]>, string> = {
 
 function has(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * The roles that actually reach the document, in document order.
+ *
+ * A role with neither a company nor a job title has nothing to head a section
+ * with, so it is dropped — but `stripBlankRoles` (lib/profile-completion.ts)
+ * persists a role as soon as ANY one of its fields is filled, so such rows do
+ * reach here.
+ *
+ * Exported because the route builds the model's input from the same list. It
+ * used to map over the unfiltered `work_experience` while this file rendered
+ * the filtered one, so a single dropped role shifted every later role's
+ * `role_index` by one: the rewritten bullets of one job were printed under the
+ * next job's employer, and that job's own bullets were silently discarded. Two
+ * derivations of "which roles count" is one derivation waiting to disagree;
+ * there is now only this one.
+ */
+export function renderableRoles(profile: Profile): WorkExperienceRole[] {
+  return (profile.work_experience ?? []).filter(
+    (role) => has(role.company) || has(role.job_title),
+  );
 }
 
 /** "Jan 2021 — Present". Falls back to the raw string if it is not YYYY-MM. */
@@ -313,6 +373,58 @@ function splitIntoBullets(text: string): string[] {
 }
 
 /**
+ * How much content one render attempt is allowed to emit.
+ *
+ * The document must fit one page, and no constant can promise that — the same
+ * bullet count fits or overflows depending on how long the bullets are, how
+ * many roles there are, and how many skills the profile lists.
+ * `renderResumePdf` therefore renders, measures, and retries down this ladder.
+ */
+export type RenderBudget = {
+  /** Maximum bullets rendered per role. */
+  bulletCap: number;
+  /**
+   * Typographic density passed to `buildStyles`. 1 is the designed layout;
+   * below 1 tightens type and spacing proportionally.
+   */
+  density: number;
+  /**
+   * Whether the cap also applies to the stored-responsibilities fallback.
+   *
+   * False on the first attempt: the cap governs what we ask the *model* to
+   * write, and silently dropping the user's own hand-entered text loses
+   * information that a long profile is deliberately telling us. It turns on
+   * only once an uncapped render has measured at more than one page, where the
+   * alternative is not "keep everything" but "emit a two-page one-pager".
+   */
+  capFallback: boolean;
+};
+
+/**
+ * Render attempts, in order.
+ *
+ * The first rung is exactly the behaviour from before measurement existed, so a
+ * profile that already fits renders byte-for-byte as it did and pays only for
+ * one page count.
+ *
+ * After that the order encodes a preference: **tighten the type before dropping
+ * a bullet.** A slightly denser resume still says everything the candidate did;
+ * a roomy one with the last two achievements missing does not. Bullets only
+ * start coming off once the densest layout has been measured and still
+ * overflows. 0.88 puts body text at ~8.4pt, which is dense but ordinary for a
+ * one-page resume.
+ */
+const PAGE_FIT_LADDER: readonly RenderBudget[] = [
+  { bulletCap: MAX_BULLETS_PER_ROLE, capFallback: false, density: 1 },
+  { bulletCap: MAX_BULLETS_PER_ROLE, capFallback: true, density: 1 },
+  { bulletCap: MAX_BULLETS_PER_ROLE, capFallback: true, density: 0.94 },
+  { bulletCap: MAX_BULLETS_PER_ROLE, capFallback: true, density: 0.88 },
+  { bulletCap: 5, capFallback: true, density: 0.88 },
+  { bulletCap: 4, capFallback: true, density: 0.88 },
+  { bulletCap: 3, capFallback: true, density: 0.88 },
+];
+
+/**
  * A role's bullets: the model's rewrite when usable, otherwise the stored
  * responsibilities. Never both, never neither-and-empty.
  *
@@ -323,14 +435,11 @@ function splitIntoBullets(text: string): string[] {
  * fragments, the cap trims to four, and the tail of the last real bullet is
  * gone. So the split only fires when there is exactly one element and it is
  * long enough to be a blob.
- *
- * The fallback is deliberately left uncapped: the cap governs what we ask the
- * model to write, and silently dropping the user's own hand-entered text would
- * lose information. A long fallback is the profile telling us it is long.
  */
 function bulletsFor(
   role: WorkExperienceRole,
   rewritten: string[] | undefined,
+  budget: RenderBudget,
 ): string[] {
   const returned = (rewritten ?? [])
     .filter((line): line is string => typeof line === "string")
@@ -341,13 +450,20 @@ function bulletsFor(
     const isBlob =
       returned.length === 1 && returned[0].length > MAX_BULLET_CHARS;
     const bullets = isBlob ? splitIntoBullets(returned[0]) : returned;
-    return bullets.slice(0, MAX_BULLETS_PER_ROLE);
+    return bullets.slice(0, budget.bulletCap);
   }
 
-  return splitIntoBullets(role.responsibilities);
+  const fallback = splitIntoBullets(role.responsibilities);
+  return budget.capFallback ? fallback.slice(0, budget.bulletCap) : fallback;
 }
 
-function Bullet({ children }: { children: string }) {
+function Bullet({
+  children,
+  styles,
+}: {
+  children: string;
+  styles: Styles;
+}) {
   return (
     <View style={styles.bulletRow}>
       <Text style={styles.bulletMark}>•</Text>
@@ -359,9 +475,11 @@ function Bullet({ children }: { children: string }) {
 function Section({
   heading,
   children,
+  styles,
 }: {
   heading: string;
   children: React.ReactNode;
+  styles: Styles;
 }) {
   return (
     <View style={styles.section}>
@@ -374,23 +492,85 @@ function Section({
 type Props = {
   profile: Profile;
   prose?: ResumeProse;
+  budget?: RenderBudget;
 };
 
 /**
- * Renders the document to a PDF buffer.
+ * Pages in a rendered PDF.
+ *
+ * Read from the page tree's `/Count`, which the PDF spec requires on the root
+ * `/Pages` node, falling back to counting `/Type /Page` objects if a writer
+ * ever omits it. Byte inspection is the only option here: `@react-pdf/renderer`
+ * exposes no page count, and its `onRender` callback is browser-only.
+ */
+function countPdfPages(buffer: Buffer): number {
+  const bytes = buffer.toString("latin1");
+
+  const declared = [
+    ...bytes.matchAll(/\/Type\s*\/Pages[\s\S]{0,400}?\/Count\s+(\d+)/g),
+  ].map((match) => Number(match[1]));
+
+  if (declared.length > 0) {
+    return Math.max(...declared);
+  }
+
+  return (bytes.match(/\/Type\s*\/Page(?![s])/g) ?? []).length;
+}
+
+/**
+ * Renders the document to a single-page PDF buffer.
+ *
+ * A one-page resume is what the spec calls for, and nothing about the layout
+ * enforces it. Measured on the real renderer: three roles of six one-line
+ * bullets alongside a 43-skill profile spills onto a second page, while the
+ * same profile with two roles fits — so the fit depends on the profile, and no
+ * choice of constant can promise it. The guarantee is therefore made by
+ * construction: render, count the pages, and step down `PAGE_FIT_LADDER` until
+ * it fits.
+ *
+ * Retries cost CPU only. No model call is repeated, the rewritten prose is
+ * reused across attempts, and the common case fits on the first one.
  *
  * Lives here rather than in the route so the JSX stays in a `.tsx` file —
  * Next.js documents route handlers as `route.ts` / `route.js` only — and so
  * every `@react-pdf/renderer` import sits in this one server-only module.
  */
-export function renderResumePdf(
+export async function renderResumePdf(
   profile: Profile,
   prose?: ResumeProse,
 ): Promise<Buffer> {
-  return renderToBuffer(<ResumeDocument profile={profile} prose={prose} />);
+  let rendered: Buffer | null = null;
+
+  for (const budget of PAGE_FIT_LADDER) {
+    rendered = await renderToBuffer(
+      <ResumeDocument profile={profile} prose={prose} budget={budget} />,
+    );
+
+    if (countPdfPages(rendered) <= 1) {
+      return rendered;
+    }
+  }
+
+  // Every rung overflowed: a profile long enough that even the tightest layout
+  // at three bullets per role will not fit. Returning the last attempt beats
+  // returning nothing, but it is worth knowing that it happened.
+  console.error("[resume-document] could not fit the resume on one page", {
+    roles: renderableRoles(profile).length,
+    skills: profile.skills.length,
+    pages: countPdfPages(rendered as Buffer),
+  });
+
+  // Non-null: PAGE_FIT_LADDER is never empty, so the loop always assigned.
+  return rendered as Buffer;
 }
 
-export function ResumeDocument({ profile, prose }: Props) {
+export function ResumeDocument({
+  profile,
+  prose,
+  budget = PAGE_FIT_LADDER[0],
+}: Props) {
+  const styles = stylesFor(budget.density);
+
   // Every section below is conditional: an empty section is omitted entirely
   // rather than rendered as a heading with nothing under it.
   const contact = [
@@ -403,9 +583,7 @@ export function ResumeDocument({ profile, prose }: Props) {
     .filter((part): part is string => has(part))
     .join("  ·  ");
 
-  const roles = (profile.work_experience ?? []).filter(
-    (role) => has(role.company) || has(role.job_title),
-  );
+  const roles = renderableRoles(profile);
 
   const summary = has(prose?.summary) ? prose.summary.trim() : "";
   const education = profile.education;
@@ -432,16 +610,20 @@ export function ResumeDocument({ profile, prose }: Props) {
         <View style={styles.headerRule} />
 
         {summary.length > 0 ? (
-          <Section heading="Summary">
+          <Section heading="Summary" styles={styles}>
             <Text>{summary}</Text>
           </Section>
         ) : null}
 
         {roles.length > 0 ? (
-          <Section heading="Experience">
+          <Section heading="Experience" styles={styles}>
             {roles.map((role, index) => {
               const dates = roleDates(role);
-              const bullets = bulletsFor(role, prose?.bulletsByRole?.[index]);
+              const bullets = bulletsFor(
+                role,
+                prose?.bulletsByRole?.[index],
+                budget,
+              );
               return (
                 <View key={index} style={styles.role} wrap={false}>
                   <View style={styles.roleHeader}>
@@ -454,7 +636,9 @@ export function ResumeDocument({ profile, prose }: Props) {
                     <Text style={styles.roleCompany}>{role.company}</Text>
                   ) : null}
                   {bullets.map((bullet, bulletIndex) => (
-                    <Bullet key={bulletIndex}>{bullet}</Bullet>
+                    <Bullet key={bulletIndex} styles={styles}>
+                      {bullet}
+                    </Bullet>
                   ))}
                 </View>
               );
@@ -466,7 +650,7 @@ export function ResumeDocument({ profile, prose }: Props) {
         (educationHeadline.length > 0 ||
           has(education.institution) ||
           has(education.year)) ? (
-          <Section heading="Education">
+          <Section heading="Education" styles={styles}>
             <View style={styles.educationLine}>
               {educationHeadline.length > 0 ? (
                 <Text style={styles.educationDegree}>{educationHeadline}</Text>
@@ -481,7 +665,7 @@ export function ResumeDocument({ profile, prose }: Props) {
         ) : null}
 
         {profile.skills.length > 0 ? (
-          <Section heading="Skills">
+          <Section heading="Skills" styles={styles}>
             <View style={styles.skillRow}>
               {profile.skills.map((skill, index) => (
                 <Text key={index} style={styles.skill}>

@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  AI_ROUTE,
+  checkAiRateLimit,
+  recordAiCall,
+  retryAfterPhrase,
+} from "@/lib/ai-rate-limit";
 import { createAiClient } from "@/lib/insforge-ai";
 import { createInsforgeServer } from "@/lib/insforge-server";
 import {
@@ -10,6 +16,7 @@ import {
 } from "@/lib/profile-completion";
 import type {
   ExtractActionResult,
+  ExtractedEducation,
   ExtractedProfile,
   WorkExperienceRole,
 } from "@/types";
@@ -81,6 +88,7 @@ const NO_RESUME_ERROR = "Upload a resume before extracting.";
 const UNREADABLE_ERROR =
   "Could not read this resume. Please try a different file.";
 const SERVICE_ERROR = "Could not extract from your resume. Please try again.";
+const RATE_LIMIT_ERROR = "Too many extractions in the last hour.";
 
 
 /**
@@ -282,20 +290,25 @@ function toProfile(parsed: z.infer<typeof extractionSchema>): ExtractedProfile {
   if (parsed.preferred_locations?.length)
     profile.preferred_locations = parsed.preferred_locations;
 
+  // Only the sub-fields the resume actually states. Returning the full
+  // `Education` shape with `null` / "" placeholders made "the resume is silent
+  // about this" indistinguishable from "the resume says this is empty", and the
+  // form replaced the whole object — so a resume naming only an institution
+  // wiped a degree, field and year the user had already filled in, quietly
+  // turning a complete profile incomplete.
   const education = parsed.education;
-  if (
-    education &&
-    (education.degree ||
-      education.field ||
-      education.institution ||
-      education.year)
-  ) {
-    profile.education = {
-      degree: education.degree ?? null,
-      field: education.field ?? "",
-      institution: education.institution ?? "",
-      year: education.year ?? "",
-    };
+  if (education !== undefined) {
+    const stated: ExtractedEducation = {};
+    if (education.degree !== undefined) stated.degree = education.degree;
+    if (education.field !== undefined) stated.field = education.field;
+    if (education.institution !== undefined) {
+      stated.institution = education.institution;
+    }
+    if (education.year !== undefined) stated.year = education.year;
+
+    if (Object.keys(stated).length > 0) {
+      profile.education = stated;
+    }
   }
 
   const roles = (parsed.work_experience ?? [])
@@ -373,6 +386,26 @@ export async function POST(): Promise<NextResponse> {
       console.error("[api/resume/extract] sign", signError);
       return fail(SERVICE_ERROR);
     }
+
+    // Checked here rather than at the top of the handler: the calls above are
+    // free, so a user whose resume is missing should get that error rather than
+    // a rate-limit one. Everything below this line is billed.
+    const verdict = await checkAiRateLimit(
+      insforge,
+      userId,
+      AI_ROUTE.resumeExtract,
+    );
+    if (!verdict.allowed) {
+      return fail(
+        `${RATE_LIMIT_ERROR} Please try again ${retryAfterPhrase(
+          verdict.retryAfterSeconds,
+        )}.`,
+      );
+    }
+
+    // Recorded before the call, not after. Extraction is billed whether or not
+    // the response turns out to be usable, so the tally has to count attempts.
+    await recordAiCall(insforge, userId, AI_ROUTE.resumeExtract);
 
     const aiClient = await createAiClient();
 

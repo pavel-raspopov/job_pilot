@@ -376,6 +376,34 @@ The system SHALL record that a generated resume exists so a later request can of
 - **WHEN** the generated resume's stored location is requested without authorization
 - **THEN** the document is not served
 
+### Requirement: AI request rate limiting
+
+The system SHALL limit how many resume extraction and resume generation requests a signed-in user may make within a rolling window, and SHALL enforce that limit when handling the request, not only in the interface.
+
+When a user is over the limit the system SHALL refuse the request before calling the AI service, SHALL tell the user that too many requests have been made and roughly when to try again, and SHALL change no stored data.
+
+Limits SHALL be tracked per user and per request type in shared storage rather than in server process memory, and a user SHALL NOT be able to clear their own recorded usage. A refused request SHALL NOT count toward the limit. A failure of the limiter's own bookkeeping SHALL NOT prevent the request.
+
+#### Scenario: A request within the limit proceeds
+
+- **WHEN** a signed-in user requests extraction or generation while under the limit
+- **THEN** the request proceeds and the call is recorded against their usage
+
+#### Scenario: A request over the limit is refused before any AI call
+
+- **WHEN** a signed-in user has reached the limit for that request type
+- **THEN** the system refuses it, makes no AI service call, tells the user roughly when to try again, and leaves the stored profile and both resume objects unchanged
+
+#### Scenario: Limits are tracked per request type
+
+- **WHEN** a user has reached the limit for generation
+- **THEN** extraction is still available to them
+
+#### Scenario: A free failure is reported ahead of the limit
+
+- **WHEN** a user with no stored resume requests extraction
+- **THEN** the user is told to upload a resume rather than that they have made too many requests
+
 ### Requirement: Generation failures are reported, not thrown
 
 When generation cannot complete, the system SHALL show the user an error on the profile page, leave the form untouched, and leave the stored profile and both resume objects unchanged. This applies when the user has no stored profile, when the profile is incomplete, when the AI service is unavailable or unfunded, when the document cannot be rendered, and when the upload fails.
