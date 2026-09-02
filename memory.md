@@ -66,6 +66,15 @@ Adzuna Job Discovery".
   house style. The detail belongs in `progress-tracker.md` and the OpenSpec
   artifacts, which stay current — a commit body is frozen and goes stale.
 
+- **New rule: check the repo's existing convention before writing any artifact type
+  for the first time in a session** (`AGENTS.md`, "Rules that never change").
+  Concrete checks, not intentions: `git log -8 --format=%B` before a commit, read a
+  sibling before a component, read an existing route before a new one. The mechanism
+  it guards against: during a long autonomous run the strongest pull on style is my
+  own recent prose, not the project's conventions. Diagnostic from this session —
+  the token rule is *stated* and had 100% compliance; commit style was only
+  *demonstrated* by four two-line commits and drifted on the first try.
+
 ## Problems solved
 
 - **`job_search_started` fired twice per search.** Both the client and the route
