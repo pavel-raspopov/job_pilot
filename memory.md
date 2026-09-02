@@ -86,6 +86,25 @@ Find Jobs Page — Full UI".
 - **`<th scope="row">` centres its text** from the UA stylesheet. It was
   invisible only because a `display:flex` child filled the content box. Caught by
   reading computed `text-align`, not by looking.
+- **The InsForge MCP had never really worked — root cause found 2026-09-02.**
+  `${VAR}` in `.mcp.json` expands from **Claude Code's own process environment**,
+  not from `.claude/settings.local.json`. That `env` block feeds tool execution
+  (Bash sees the variables) but not the MCP config interpolator, so the server
+  received the literal string `${INSFORGE_API_BASE_URL}`, died on `new URL(...)`
+  with `ERR_INVALID_URL`, and Claude Code reported only `CONNECTION_CLOSED`.
+  **11 of 12 launches failed identically** from 2026-08-27 to 2026-09-02; the one
+  success (2026-08-27 18:04, which ran the Feature 04 migrations) was launched
+  from a shell that already had the variables exported. The credentials were
+  never the problem. Fixed by persisting `INSFORGE_API_KEY` and
+  `INSFORGE_API_BASE_URL` as Windows **user-scope** env vars;
+  `settings.local.json` keeps its copy for tool-side use. Verified by spawning
+  the server with the values read back from the user environment: full handshake,
+  17 tools including `run-raw-sql`. **Takes effect only in a Claude Code launched
+  from a NEW terminal** — a process inherits its parent's environment block, so
+  relaunching inside an already-open shell fails the same way. Documented in
+  `AGENTS.md`. Real MCP errors live in
+  `%LOCALAPPDATA%\claude-cli-nodejs\Cache\<project>\mcp-logs-<server>\*.jsonl` —
+  read them instead of guessing.
 
 ## Current state
 
@@ -119,8 +138,9 @@ and each is there because it already cost real money or a real bug. The Find Job
 button is currently a plain submit with no ref guard: **it becomes a billed
 action the moment Feature 10 wires it to the gateway.**
 
-Feature 10 also needs the InsForge MCP, which **failed to connect this session**
-(`CONNECTION_CLOSED`). The stdio fallback is in the notes below.
+Feature 10 also needs the InsForge MCP. It failed to connect all session, was
+diagnosed afterwards, and is **fixed pending a restart from a new terminal** —
+see "Problems solved".
 
 ## Open questions
 

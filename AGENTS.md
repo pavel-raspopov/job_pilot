@@ -42,7 +42,14 @@ A skill edited in one harness tree and not synced is live in that harness only. 
 
 `openspec` must be installed globally (`npm i -g @fission-ai/openspec`) on every machine — the `opsx-*` commands call the bare binary, which a devDependency does not put on PATH.
 
-MCP credentials never go in a committed file. Each harness reads them from its own gitignored local config; `.mcp.json` and `.cursor/mcp.json` reference them as `${VAR}`.
+MCP credentials never go in a committed file. `.mcp.json` and `.cursor/mcp.json` reference them as `${VAR}`.
+
+**`${VAR}` in `.mcp.json` expands from Claude Code's own process environment — not from `.claude/settings.local.json`.** The `env` block there is applied to tool execution (Bash sees those variables), but the MCP config interpolator never reads it, so a variable that only exists in `settings.local.json` is passed to the server as the literal string `${VAR}`. That is not a visible failure: the InsForge server calls `new URL("${INSFORGE_API_BASE_URL}/api/health")`, throws `ERR_INVALID_URL`, and exits, so Claude Code just reports `CONNECTION_CLOSED`. It failed this way on 11 of 12 launches between 2026-08-27 and 2026-09-02 while the InsForge web console showed the backend healthy the whole time.
+
+So the MCP variables must exist in the **environment Claude Code is launched from**. On this machine `INSFORGE_API_KEY` and `INSFORGE_API_BASE_URL` are persisted as Windows **user-scope** environment variables (set 2026-09-02); `settings.local.json` keeps its copy for tool-side use. Two consequences worth knowing:
+
+- A process inherits its parent's environment block at spawn time, so after changing a user env var you need a **new terminal window** — relaunching `claude` inside an already-open shell inherits the stale block and fails identically.
+- When the server will not connect, read the real error rather than guessing: `%LOCALAPPDATA%\claude-cli-nodejs\Cache\<project>\mcp-logs-<server>\*.jsonl`.
 
 ### AGENTS.md gets overwritten
 
