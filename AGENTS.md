@@ -128,6 +128,7 @@ One job each. If two skills seem to apply, this table wins.
 - If the same problem persists after one corrective prompt — stop and run `/recover`
 - Never persist secrets (keys, tokens, connection strings) in `memory.md`, git, or logs
 - Run `/remember save` **before** every git commit and stage `memory.md` with the work — never leave memory for a follow-up commit
+- **Commit messages are one line.** `type(scope): summary`, 72 characters or fewer, plus the `Co-Authored-By` trailer. **No body, ever.** The reasoning, decisions and verification already live in `context/progress-tracker.md`, `memory.md` and the archived OpenSpec change — three places that get updated as the project moves on, while a commit body is frozen the moment it is written and starts lying. Duplicating them into git history makes `git log` unreadable without making anything more discoverable. If a change feels too big to summarise in one line, that is a signal the commit is too big, not that the message is too short
 - Edit skills in `.agents/skills/` and run `npm run sync:agents` — never hand-edit `.claude/`, `.cursor/`, or `.clinerules/`
 - If this file starts with `# InsForge SDK Documentation`, it was overwritten — run `npm run check:agents` before doing anything else
 

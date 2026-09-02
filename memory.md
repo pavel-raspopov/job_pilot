@@ -56,6 +56,16 @@ Adzuna Job Discovery".
 - **Country inference matches country names only**, never cities or state codes.
   "San Francisco, CA" is California, "Indianapolis, IN" is Indiana.
 
+## Decisions made (cont.)
+
+- **Commit messages are one line from now on** — `type(scope): summary` under 72
+  chars plus the `Co-Authored-By` trailer, no body. Recorded in `AGENTS.md` under
+  "Rules that never change". This restores the repo's own earlier convention:
+  `f0fb6f7`, `f59d015`, `c9b8f26` and `0b64554` are all two lines, and the
+  multi-paragraph bodies on `9bae6bf` and `a216397` were drift I introduced, not
+  house style. The detail belongs in `progress-tracker.md` and the OpenSpec
+  artifacts, which stay current — a commit body is frozen and goes stale.
+
 ## Problems solved
 
 - **`job_search_started` fired twice per search.** Both the client and the route
