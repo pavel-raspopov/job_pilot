@@ -75,6 +75,12 @@ Adzuna Job Discovery".
   the token rule is *stated* and had 100% compliance; commit style was only
   *demonstrated* by four two-line commits and drifted on the first try.
 
+- **New rule: quality over speed** — take the time the work needs, never report done
+  without verification output, never tick a task off on unverified code. Heads the
+  "Rules that never change" list. Qualifier written into it deliberately:
+  thoroughness means **more verification, not more output**, so it cannot be read as
+  licence for the verbosity drift flagged in the same conversation.
+
 ## Problems solved
 
 - **`job_search_started` fired twice per search.** Both the client and the route

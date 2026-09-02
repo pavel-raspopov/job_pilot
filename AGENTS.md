@@ -122,6 +122,7 @@ One job each. If two skills seem to apply, this table wins.
 
 ## Rules that never change
 
+- **Quality over speed — take the time the work needs.** Never report something done without showing the verification output, and never tick a task off when the code is written but unverified: implementation done is not done. Attack the failure paths, not just the happy one. Both defects the Feature 10 review caught — an analytics event fired twice, and a rate-limit hole leaving the shared Adzuna quota unprotected — were invisible to reading the code and to checks that had already passed; each surfaced only by counting rows before and after. **Thoroughness means more verification, not more output** — a longer document is not a better one, and finishing early is never worth a regression
 - Never use hardcoded hex values or raw Tailwind color classes — tokens from `context/ui-tokens.md`
 - Update `context/progress-tracker.md` and `context/ui-registry.md` after every feature
 - Before any third-party library: load its installed skill first, then `context/library-docs.md`
