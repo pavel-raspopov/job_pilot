@@ -92,10 +92,14 @@ Find Jobs Page — Full UI".
   (Bash sees the variables) but not the MCP config interpolator, so the server
   received the literal string `${INSFORGE_API_BASE_URL}`, died on `new URL(...)`
   with `ERR_INVALID_URL`, and Claude Code reported only `CONNECTION_CLOSED`.
-  **11 of 12 launches failed identically** from 2026-08-27 to 2026-09-02; the one
-  success (2026-08-27 18:04, which ran the Feature 04 migrations) was launched
-  from a shell that already had the variables exported. The credentials were
-  never the problem. Fixed by persisting `INSFORGE_API_KEY` and
+  **11 of 12 launches failed identically** from 2026-08-27 to 2026-09-02 —
+  FAIL at 14:44, SUCCESS at 18:04, FAIL every launch since. Why the 18:04 session
+  worked is **not recoverable**: `.mcp.json` stayed untracked until 21:54 that
+  day, so its contents at 18:04 are unknown, and the surrounding failures prove
+  placeholders were in play both before and after. Do not repeat the guess that
+  it was launched from a pre-exported shell; the root cause above stands on the
+  logged `ERR_INVALID_URL` in all 11 failures, independent of that one session.
+  The credentials were never the problem. Fixed by persisting `INSFORGE_API_KEY` and
   `INSFORGE_API_BASE_URL` as Windows **user-scope** env vars;
   `settings.local.json` keeps its copy for tool-side use. Verified by spawning
   the server with the values read back from the user environment: full handshake,
