@@ -126,3 +126,47 @@ export type GenerateActionResult = {
   error?: string;
   downloadUrl?: string;
 };
+
+/** How a job was discovered. Mirrors the `jobs.source` CHECK constraint. */
+export type JobSource = "search" | "url";
+
+/**
+ * A discovered job, scored against the user profile.
+ *
+ * Mirrors `public.jobs` in `db/migrations/001_initial_schema.sql` exactly,
+ * including nullability — only `id`, `user_id`, `source` and `found_at` are
+ * NOT NULL there, and the `text[]` columns carry no default, so they are
+ * nullable here too (unlike `profiles.skills`, which defaults to `{}`).
+ */
+export type Job = {
+  id: string;
+  run_id: string | null;
+  user_id: string;
+  source: JobSource;
+  source_url: string | null;
+  external_apply_url: string | null;
+  title: string | null;
+  company: string | null;
+  location: string | null;
+  salary: string | null;
+  job_type: string | null;
+  about_role: string | null;
+  responsibilities: string[] | null;
+  requirements: string[] | null;
+  nice_to_have: string[] | null;
+  benefits: string[] | null;
+  about_company: string | null;
+  match_score: number | null;
+  match_reason: string | null;
+  matched_skills: string[] | null;
+  missing_skills: string[] | null;
+  /** Feature 13 writes this; its shape is defined by the research agent. */
+  company_research: Record<string, unknown> | null;
+  found_at: string;
+};
+
+/** Match-band filter on the Find Jobs list. */
+export type MatchFilter = "all" | "high" | "low";
+
+/** Sort order for the Find Jobs list. */
+export type JobSort = "score" | "newest" | "oldest";

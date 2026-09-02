@@ -1,159 +1,173 @@
-# Memory — Phase 2 Adversarial Review + Fixes
+# Memory — Feature 09 Find Jobs Page (Full UI)
 
-Last updated: 9/1/2026
+Last updated: 9/2/2026
 
 ## What was built
 
-An adversarial `/feature-review` over Phase 2 (Features 05–08), then fixes for
-11 findings. Feature 08 itself shipped in the previous session and is committed
-as `c9b8f26`.
+Feature 09, the first item of Phase 3. `/find-jobs` had been linked from the
+Navbar and listed in `proxy.ts`'s protected routes since Feature 01, but the
+route did not exist — the link 404'd. It now serves the full page against a
+24-job mock array. No Adzuna, no DB, no AI, no PostHog event, no new dependency,
+no migration.
 
-- **`.agents/skills/feature-review/SKILL.md`** — adversarial review is now the
-  skill's **default**, not an opt-in. Added: invert the burden of proof (PASS is
-  earned by attacking, never a fallback), distrust the author's own verification
-  most of all, name the exact triggering input, two new report sections
-  (*Attacked and held*, *Open questions*), and an evidence bar per severity.
-  Synced to `.claude/` and `.cursor/` via `npm run sync:agents`.
-- **`lib/ai-rate-limit.ts`** (new) — `AI_ROUTE`, `LIMITS` (10/hour per route),
-  `checkAiRateLimit`, `recordAiCall`, `retryAfterPhrase`. Both AI routes wired.
-- **`db/migrations/004_add_ai_usage.sql`** (new, **applied**) — `ai_usage` table.
-- **`lib/ai-rate-limit.ts` + `types/index.ts`** — new `ExtractedEducation` type.
-- **Modified:** `resume-document.tsx` (shared `renderableRoles`, density-scaled
-  stylesheet factory, measured page-fit loop), `generate/route.ts`,
-  `extract/route.ts`, `ProfileForm.tsx` (`draftFromForm`, `mergeEducation`, save
-  ref guard), `ResumeUpload.tsx` (extract + upload ref guards), `actions/profile.ts`
-  (PDF magic bytes, email fallback), `architecture.md`, `code-standards.md`,
-  `library-docs.md`, `progress-tracker.md`, `openspec/specs/profile/spec.md`.
+OpenSpec change `add-find-jobs-ui` — proposed, applied, reviewed, and archived to
+`openspec/changes/archive/2026-09-02-add-find-jobs-ui/`. Its delta spec was
+merged into a new `openspec/specs/find-jobs/spec.md` (7 requirements, 23
+scenarios).
 
-Full finding-by-finding record is in `context/progress-tracker.md` under
-"Phase 2 adversarial review".
+- **New:** `app/(app)/find-jobs/page.tsx` (server component; holds the mock array
+  and derives the banner's counts), `components/find-jobs/SearchControls.tsx`,
+  `JobFilters.tsx`, `JobsTable.tsx`, `JobsPagination.tsx`, and `lib/utils.ts`
+  (`formatRelativeDate`, `HIGH_MATCH_THRESHOLD`).
+- **Modified:** `types/index.ts` (`Job`, `JobSource`, `MatchFilter`, `JobSort`),
+  `context/ui-registry.md`, `context/architecture.md`,
+  `context/progress-tracker.md`.
+
+The full decision record is in `context/progress-tracker.md` under "Feature 09
+Find Jobs Page — Full UI".
 
 ## Decisions made
 
-- **One function decides which roles count.** `renderableRoles(profile)` is
-  exported from `resume-document.tsx` and used by *both* the document and the
-  route's `buildModelInput`. The Critical bug was two derivations of that list
-  disagreeing. **Rule for Features 10/13: when model output is keyed by position
-  into a list, exactly one function may compute that list.**
-- **"One page" is enforced by measurement, not by a constant.** `renderResumePdf`
-  renders, reads `/Count` from the PDF page tree, and steps down
-  `PAGE_FIT_LADDER`. The ladder **tightens type before dropping a bullet** — a
-  denser resume still says everything the candidate did. Rung 0 is the old
-  behaviour, so anything that already fitted renders byte-identically. No
-  constant can promise a fit; it depends on the profile.
-- **Unstated ≠ empty.** `ExtractedEducation` omits sub-fields the resume does not
-  state rather than sending `null`/`""`. The form merges per sub-field. Reuse
-  this shape wherever a model reports a partial object.
-- **Rate-limit state is a log in Postgres, not a counter and not memory.**
-  Serverless instances share no memory. Append-only avoids read-modify-write and
-  doubles as cost telemetry. RLS is select-own + insert-own with **no update or
-  delete policy**. `route` has **no CHECK constraint** — otherwise every new AI
-  route becomes a migration. Check *after* the free failure cases; record
-  *before* the model call; **fail open** if the limiter's own query errors.
-- **Every billed action needs a `useRef`, not a `disabled` attribute.**
-- `openspec/specs/profile/spec.md` was edited **directly** (new *AI request rate
-  limiting* requirement) because there was no active change to attach a delta
-  to. Validates strict. Reconstruct as a retroactive change if the paper trail
-  matters.
+- **`JobsTable` is the stateful container, not a bare table.** It owns `query`,
+  `matchFilter`, `sort`, `page` and composes `JobFilters` and `JobsPagination`,
+  which are presentational. All three read one derived list, so one owner is
+  forced, and `architecture.md` fixes that directory at four files — a fifth
+  `JobsList.tsx` wrapper would contradict it. Recorded in both docs because the
+  name undersells the role.
+- **`HIGH_MATCH_THRESHOLD` (70) is one exported constant** in `lib/utils.ts`,
+  read by both the High Match filter and the green score band. They are the same
+  boundary; two literals would be free to drift. This is Feature 08's Critical
+  bug (two derivations of one list disagreeing) applied preventively. It went in
+  `lib/utils.ts`, not `types/index.ts`, because that file is types-only and fully
+  erasable.
+- **Six columns, not the design's five — a deliberate inversion of the usual
+  precedence.** The project default is that the design asset wins (Feature 05).
+  The developer overrode it: `jobs.source` is a real migrated column with
+  documented badge tokens, and the design predates the distinction.
+- **Rows are hover-only, not links.** `/find-jobs/[id]` is Feature 12; linking
+  now would ship a known 404, which the project already carried once.
+- **Filter/sort/search/pagination are live client-side** over the mock array, as
+  plain functions over an array, so Feature 11 replaces where the array comes
+  from rather than rewriting components.
+- **Where the design is internally inconsistent, derive rather than copy.** Its
+  footer says "1 to 6 of 24" beside 8 page buttons (24/6 = 4), so the page count
+  is computed and renders 4 — and there is no ellipsis, because truncation could
+  not be exercised at this scale and unverifiable code is worse than none. Its
+  banner copy ("8 jobs / 4 strong matches") was written against an 8-row mock, so
+  the counts are derived and passed as props; the summary cannot contradict the
+  rows on screen.
+- **Score bands follow `ui-tokens.md`, not the design.** The PNG paints some bars
+  blue; green-from-70 was already settled on 2026-07-31. No blue appears.
+- Mock data lives in `page.tsx` — the first file Feature 10 opens — rather than a
+  `lib/` module that would outlive its purpose by looking like infrastructure.
 
 ## Problems solved
 
-- **An AI reviewer's default failure mode is agreeableness.** Reading code,
-  reconstructing the author's intent, and reporting PASS only proves the code is
-  self-consistent. Both proven defects survived lint, build, TypeScript, a prior
-  3-layer review, and the author's own live verification.
-- **Compile the module out of Next.js and render it.** `npx tsc` with a throwaway
-  tsconfig (`jsx: react-jsx`, `paths`, `outDir` inside the project so Node
-  resolves `node_modules`) emits usable JS despite type errors. That harness
-  turned two arguments into reproductions and later proved the fixes. Rebuild it
-  for any PDF change — it is the only cheap way to test the renderer.
-- **Differential rendering beats text extraction for proving PDF bugs.** Render
-  twice with different inputs and diff the bytes; if two renders differ only in
-  the `/ID` trailer, the input made no difference. That is how "the real
-  employer's bullets were silently discarded" was established without decoding
-  subset-font glyphs.
-- **A fixture that happens to fit proves nothing.** The 43-skill / **2**-role
-  profile is exactly the case that stays on one page; the third role the form
-  allows tips it to two.
-- **`NaN` in a `@react-pdf` style does not throw** — `@react-pdf/stylesheet` logs
-  a parse error and renders without that property. TypeScript is the only guard,
-  so keep such fields required (this bit the test harness, not the app).
-- **Line endings are mixed in this repo.** `resume-document.tsx` and
-  `generate/route.ts` are LF; everything else is CRLF. Any scripted edit must
-  normalise to LF, patch, then restore — `grep -q $'\r'` is not a reliable
-  detector.
-- **The InsForge MCP connects at session start.** When it is down, drive it over
-  stdio with the command and env from `.mcp.json` + `.claude/settings.local.json`
-  (newline-delimited JSON-RPC: `initialize` → `notifications/initialized` →
-  `tools/call`). Each call re-spawns `npx`, so batch SQL into one call and expect
-  20–40s per invocation — a two-statement script can exceed a 180s timeout.
+- **A click that does nothing may be the harness, not the code.** With an
+  emulated viewport (1440x900) inside a small Browser pane, a click reported at
+  x=1307 was *delivered* at x=5392. Two controls looked completely dead. Proven
+  with a capture-phase `click` listener recording `event.clientX/Y`, then fixed
+  by clearing viewport emulation (`resize_window` preset `desktop`). **Reset
+  emulation before concluding a control is broken**, and prefer
+  `elementFromPoint` + a listener over guessing.
+- **`zoom` region-cropping is not supported in the Browser pane**, and an
+  emulated wide viewport renders unreadably small there. Verify UI facts with
+  `getComputedStyle` and the DOM instead of screenshots — stronger evidence
+  anyway. That is how all three colour bands were proven exact
+  (`#10B981` / `#FF8904` / `#99A1AF`) rather than eyeballed.
+- **A large TSX file breaks a bash heredoc.** `cat > file <<'EOF'` failed with a
+  parse error on `JobsTable.tsx`; the Write tool handled it. Also: this repo is
+  `core.autocrlf=true` and every file is CRLF, so anything written LF-first needs
+  `sed -i 's/\r$//; s/$/\r/'`.
+- **The in-app Browser pane holds no auth session**, so `/find-jobs` redirects to
+  login there and manual verification of any protected route needs the developer
+  to sign in first. Claude in Chrome (which would carry the real session) was not
+  connected this session.
+- **`<th scope="row">` centres its text** from the UA stylesheet. It was
+  invisible only because a `display:flex` child filled the content box. Caught by
+  reading computed `text-align`, not by looking.
 
 ## Current state
 
-- `npm run lint`, `build`, `check:agents`, `check:sync`, and
-  `openspec validate --specs --strict` all pass.
-- **Committed to `main`.** Nothing deployed.
-- **Verified live** against the real profile (~$0.005 spent): double-clicked
-  Extract → 1 POST; markers typed into two fields the CV omits survived
-  extraction while stated fields correctly overwrote; reload discarded everything
-  unsaved; double-clicked Generate → 1 POST; the generated PDF is genuinely
-  1 page; 10 synthetic `ai_usage` rows → Generate refused in <4s with no gateway
-  call, and the pre-cleanup count was still exactly 10 (a refused request does
-  not count); after clearing, one real generation recorded exactly one row.
+- `npm run lint`, `npm run build`, `check:agents`, `check:sync`, and
+  `openspec validate --all --strict` (3 items) all pass.
+- **Verified live in the browser** against the signed-in app: all three colour
+  bands by computed `background-color` with exact boundaries (71 green / 69
+  orange, 53 orange / 49 grey) and no blue; banner reveal with no network
+  request; text filter matching company *and* role; High Match = 14, Low Match =
+  10; all three sorts reordering; page reset from page 2 on filter change;
+  pagination range and disabled edges; empty state and clear; rows carrying no
+  anchor and not navigating; hover on the hovered row only; mobile overflow
+  contained (doc 334px in a 349px viewport, 900px table in a 269px wrapper).
   Console and server logs clean.
-- **`ai_usage` holds one real row** from that last generation. Table confirmed by
-  `get-table-schema`: RLS on, select/insert-own only.
+- **Adversarial `/feature-review`: 3 Minor, 0 Critical, 0 Important.** Two fixed
+  (the centred `<th scope="row">`; the score bar announcing twice via `role="img"`
+  plus the adjacent visible percentage — the bar is now `aria-hidden`). One
+  deferred to Feature 10, marked with a comment in `JobsTable.tsx`.
+- Committed to `main`. Nothing deployed.
 - A dev server may still be running on port 3000 (`preview_start`,
   `jobpilot-dev`).
 
 ## Next session starts with
 
-`/opsx-propose` **Feature 09 Find Jobs Page — Full UI**, the first item in
-Phase 3. Mock-data UI feature, so `/impeccable shape` is worth running if any
-visual decision is open; the binding design is `context/designs/`.
+`/opsx-propose` **Feature 10 Adzuna Job Discovery**.
 
-Before Feature 10 or 13 writes an AI route, read the new **"Routes that call the
-AI gateway"** subsection in `context/code-standards.md` — `maxDuration`, the
-rate-limit check, and a UI ref guard are all mandatory, and each is there
-because it already cost real money or a real bug.
+Before writing that route, read the **"Routes that call the AI gateway"**
+subsection of `context/code-standards.md` — `maxDuration`, the rate-limit check
+(`lib/ai-rate-limit.ts`), and a UI in-flight `useRef` guard are all mandatory,
+and each is there because it already cost real money or a real bug. The Find Jobs
+button is currently a plain submit with no ref guard: **it becomes a billed
+action the moment Feature 10 wires it to the gateway.**
+
+Feature 10 also needs the InsForge MCP, which **failed to connect this session**
+(`CONNECTION_CLOSED`). The stdio fallback is in the notes below.
 
 ## Open questions
 
-- **`ai_usage` retention is unhandled.** Rows outlive their window and nothing
-  prunes them (~240/user/day worst case). Cleanup statement is in migration
-  `004`'s header comment, waiting for a scheduled job.
-- **The `education` per-sub-field merge is not covered end to end.** It only
-  fires where the resume is silent, and the test CV states all four fields.
-  Type-checked and small, but unexercised.
-- `architecture.md` and `library-docs.md` Stagehand snippets are now
-  **placeholders under an UNRESOLVED note**: Stagehand builds its own LLM client
-  and cannot call `insforge.ai.chat.completions.create`, so **Feature 13 must
-  settle how it reaches a model** — likely an OpenAI-compatible base URL pointed
-  at the gateway. Do not reintroduce `OPENAI_API_KEY`.
-- **Extraction still gets work-history dates wrong often enough to matter** —
-  second recorded instance. Review-before-save is load-bearing, not a nicety.
+- **The empty state's copy assumes filters emptied the list.** With `jobs=[]` it
+  still reads "No jobs match the current filters" and renders no Clear button.
+  Unreachable while the array is hardcoded; Feature 10's first-ever search with
+  zero results lands exactly there. An unfiltered empty list needs "run your
+  first search", not "clear filters". Comment marks the spot in `JobsTable.tsx`.
+- **Relative dates under client/server clock skew.** Timestamps are computed once
+  on the server; the client formats them against its own clock. A viewer more
+  than an hour off would hydrate a different label than was rendered. Coarse
+  hour/day buckets keep the window small and it is a dev-only warning. Settling
+  it needs a deliberately skewed clock, or formatting server-side and passing a
+  label.
+- **Feature 13 still has no answer for how Stagehand reaches a model.** Stagehand
+  builds its own LLM client and cannot call
+  `insforge.ai.chat.completions.create`; likely an OpenAI-compatible base URL
+  pointed at the gateway. `architecture.md` and `library-docs.md` carry
+  placeholders under an UNRESOLVED note. Do not reintroduce `OPENAI_API_KEY`.
+- `ai_usage` retention is unhandled — rows outlive their window and nothing
+  prunes them. Cleanup statement is in migration `004`'s header comment.
+- Extraction still gets work-history dates wrong often enough that
+  review-before-save is load-bearing.
 - `maxDuration = 120` vs the hosting plan's ceiling — unverified, nothing
   deployed.
 - Feature 06 leftovers still open: save-success copy, resume file input not
   resetting after upload, skills/industries tag input not clearing after "Add".
+- Refused AI requests return HTTP 200 with `{ success: false }` rather than 429.
+  Deliberate, but worth revisiting if those routes get a non-browser caller.
 - Cline and Cursor are not installed here; those config trees are unverified.
-- Refused AI requests return HTTP 200 with `{ success: false }`, matching the
-  route convention rather than 429. Deliberate, but worth revisiting if these
-  routes ever get a non-browser caller.
 
 ## Testing notes
 
+- **Verifying a protected route needs the developer to sign in** in the Browser
+  pane first — the pane starts with no session.
+- **Reset viewport emulation before trusting a click** (see Problems solved).
+  `preview_start` → `jobpilot-dev` → navigate to `/find-jobs`.
+- Prefer `javascript_tool` + `getComputedStyle` over screenshots for colour and
+  layout facts in this pane.
 - `assets/CV Pavel Raspopau ….pdf` (121,878 bytes) is the extraction fixture and
   matches what is in storage. **Not committed** — it holds real contact details.
-- **Never click Save Profile while testing extraction** — it would persist
-  whatever is in the form over the real profile. Reload instead; that discards
-  unsaved edits and re-proves review-before-save.
-- Driving the PDF from the browser: `fetch` the signed URL, then count
-  `/Type /Pages … /Count` in the bytes. Full text extraction needs `pdfjs-dist`
-  from a CDN; `pdftoppm` is not installed and the Browser pane will not render a
-  PDF navigation.
-- The uncontrolled profile inputs take a plain `element.value = …` (no React
-  state involved). The *controlled* role inputs still need the native value
-  setter plus `input`/`change` events.
-- Do **not** clear `document.body` while React is mounted — it throws
-  `removeChild` errors that look like product bugs.
+- **Never click Save Profile while testing extraction** — reload instead.
+- **The InsForge MCP connects at session start.** When it is down, drive it over
+  stdio with the command and env from `.mcp.json` + `.claude/settings.local.json`
+  (newline-delimited JSON-RPC: `initialize` → `notifications/initialized` →
+  `tools/call`). Each call re-spawns `npx`, so batch SQL into one call and expect
+  20–40s per invocation.
+- Rebuild the throwaway-tsconfig harness (`jsx: react-jsx`, `paths`, `outDir`
+  inside the project) for any PDF change — it is the only cheap way to test the
+  renderer outside Next.js.

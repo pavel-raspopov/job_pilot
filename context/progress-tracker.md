@@ -6,9 +6,9 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ## Current Status
 
-**Phase:** Phase 3 — Find Jobs Page (next)
-**Last completed:** 08 Resume PDF Generation from Profile — Phase 2 complete
-**Next:** 09 Find Jobs Page — Full UI
+**Phase:** Phase 3 — Find Jobs Page (in progress)
+**Last completed:** 09 Find Jobs Page — Full UI
+**Next:** 10 Adzuna Job Discovery
 
 ---
 
@@ -30,7 +30,7 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ### Phase 3 — Find Jobs Page
 
-- [ ] 09 Find Jobs Page — Full UI
+- [x] 09 Find Jobs Page — Full UI
 - [ ] 10 Adzuna Job Discovery
 - [ ] 11 Filter + Sort + Pagination
 
@@ -49,6 +49,91 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Feature 09 Find Jobs Page — Full UI (2026-09-02).** `/find-jobs` now exists;
+  the Navbar link had 404'd since Feature 01. Search controls, filter bar, a
+  six-column table, and pagination over a 24-job mock array held in
+  `app/(app)/find-jobs/page.tsx`. No Adzuna, no DB, no AI, no PostHog event, no
+  new dependency, no migration. OpenSpec change `add-find-jobs-ui`.
+
+  **Four source conflicts, all resolved before implementation.**
+
+  1. **SOURCE column: build-plan wins over the design — a deliberate inversion.**
+     `context/designs/find-jobs.png` draws five columns; `build-plan.md` Feature
+     09 and `project-overview.md` both list a Search/URL badge. The project's
+     default is that the design asset wins (that is why Feature 05 dropped the
+     cover-letter-tone dropdown). The developer overrode the default here:
+     `jobs.source` is a real migrated column with a documented badge token pair,
+     Feature 10 writes `'search'` and a later URL-paste flow writes `'url'`, and
+     the design simply predates the distinction. **Recorded because it inverts
+     the usual precedence** — do not read it as drift.
+  2. **Rows are hover-only, not links.** `project-overview.md` says a row click
+     opens the job details page, but `/find-jobs/[id]` is Feature 12. Linking now
+     would ship a known 404 — the project already carried one of those (the
+     dashboard → `/profile` link, tech debt #10). Feature 12 adds the link when
+     the destination exists.
+  3. **Filter / sort / search / pagination are live client-side** over the mock
+     array, per Feature 05's local-interactivity precedent, so Feature 11 is a
+     data-source swap rather than building the behaviour from scratch. The rules
+     are plain functions over an array for exactly that reason.
+  4. **Score bars follow the tokens, not the design.** The PNG paints the 88%
+     and 85% bars blue; the 2026-07-31 reconciliation (below) already settled
+     this in favour of `ui-tokens.md`. Green from 70, orange 50–69, gray below
+     50. **No blue appears in a score bar.**
+
+  **The 70 boundary is one exported constant.** `HIGH_MATCH_THRESHOLD` in
+  `lib/utils.ts` is read by both the High Match filter and the green score band —
+  they are the same boundary, so a green bar is exactly a row that filter keeps.
+  This is the Feature 08 rule applied preventively: last session's Critical bug
+  was two derivations of one list disagreeing, and two `70` literals would have
+  been free to drift the same way.
+
+  **Three copy and count decisions where the design is internally inconsistent.**
+  Its footer reads "Showing 1 to 6 of 24" beside page buttons numbered to 8, but
+  24 items at 6 per page is 4 pages — so the page count is **derived** from the
+  filtered total and renders 4. There is consequently no ellipsis: one button per
+  page, because truncation logic could not be exercised at this scale and
+  unverifiable code is worse than none. And the banner's "Found 8 jobs and saved
+  4 strong matches" was copy written against an 8-row mock; the counts are now
+  derived and passed in as props, so the summary cannot contradict the rows on
+  screen. Feature 11 raises the page size to 20; Feature 10 reports the real
+  run's counts.
+
+  **`JobsTable` is the stateful container.** Filter, sort and pagination all read
+  one derived list, so one component must own it, and `architecture.md` fixes
+  this directory at four files — a fifth `JobsList.tsx` wrapper would contradict
+  it. Recorded in `ui-registry.md` and `architecture.md` because the name
+  undersells the role.
+
+  **Placement details worth keeping.** `HIGH_MATCH_THRESHOLD` went into
+  `lib/utils.ts`, not `types/index.ts`: that file is types-only and fully
+  erasable, and a runtime value there would make every importer pull a runtime
+  module. `page.tsx` is a plain (non-async) server component — it awaits nothing
+  until Feature 10 reads `jobs`. Mock data lives in `page.tsx`, the first file
+  Feature 10 opens, rather than a `lib/` module that would outlive its purpose by
+  looking like infrastructure.
+
+  Three new `ui-registry.md` patterns: **success banner** (the third variant
+  beside neutral and error), **data table (jobs list)**, and **inline match score
+  bar**, plus two documented Card padding overrides (`p-4` filter toolbar, and no
+  card padding on the table card).
+
+  **Adversarial `/feature-review` — 3 Minor findings, 2 fixed.** No Critical, no
+  Important. Fixed: the row's `<th scope="row">` was computing `text-align:
+  center` from the UA stylesheet, invisible only because a `display:flex` child
+  filled the content box (`text-left` is now explicit); and the score bar was
+  announced twice per row, once via `role="img"` and again by the adjacent
+  visible percentage (the bar is now `aria-hidden`, so the text carries the
+  value). **Deferred to Feature 10:** the empty state's copy assumes filters
+  emptied the list, so a first-ever visit with zero jobs and no filters would
+  read "no jobs match the current filters" with no Clear button — unreachable
+  while the array is hardcoded. A comment marks the spot in `JobsTable.tsx`.
+
+  Worth knowing when verifying UI in the Browser pane: **with an emulated
+  viewport in a small pane, clicks land at the wrong coordinates** — one reported
+  at x=1307 was delivered at x=5392, which reads exactly like a dead button.
+  Reset viewport emulation before concluding a control is broken; a
+  capture-phase click listener tells you which it is.
 
 - **Phase 2 adversarial review — 11 findings, 10 fixed (2026-09-01).** A
   `/feature-review` pass over Features 05–08 as an adversarial reviewer (now the

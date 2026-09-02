@@ -97,9 +97,9 @@
 │   │   └── CompletionIndicator.tsx
 │   ├── find-jobs/
 │   │   ├── SearchControls.tsx
-│   │   ├── JobsTable.tsx
-│   │   ├── JobFilters.tsx
-│   │   └── JobsPagination.tsx
+│   │   ├── JobsTable.tsx              → CONTAINER: owns list view state (see note below)
+│   │   ├── JobFilters.tsx             → presentational; props + callbacks only
+│   │   └── JobsPagination.tsx         → presentational; props + callbacks only
 │   └── job-details/
 │       ├── JobInfo.tsx
 │       ├── MatchScore.tsx
@@ -126,6 +126,17 @@ resume's download link lives in the Resume card's existing footer row, beside
 the button that produced it, and `context/designs/profile.png` shows only the
 empty-state card, so no design binds the decision. Build it when a feature needs
 to *display* a resume rather than link to one.
+
+**`JobsTable.tsx` is the Find Jobs list container, not a bare table.** It owns
+the list's view state — text query, match filter, sort, page — derives the
+filtered/sorted/sliced rows, and composes `JobFilters` above the table card and
+`JobsPagination` inside its footer; both of those are presentational. The four
+files above are therefore not four peers. The state lives in `JobsTable` rather
+than a fifth `JobsList.tsx` wrapper because all three components read one
+derived list and this tree is the source of truth for the directory's contents.
+Feature 11 moves the querying server-side: the filter rules are plain functions
+over an array, so what changes is where the array comes from and where the three
+values are held, not the component split.
 
 **`app/api/resume/generate/fonts/` holds two Inter TTFs** (SIL Open Font
 License), registered with `Font.register` at render time. They are not
