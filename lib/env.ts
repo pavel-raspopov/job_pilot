@@ -42,3 +42,50 @@ function loadEnv(): z.infer<typeof envSchema> {
 }
 
 export const env = loadEnv();
+
+/**
+ * Server-only environment variables.
+ *
+ * Deliberately a SEPARATE schema, validated on first read rather than at module
+ * load. Do not fold these into `envSchema` above: this file is imported by
+ * `lib/insforge-client.ts` (the browser client) and by `proxy.ts` (the Edge
+ * proxy), and `loadEnv()` runs during module evaluation. Next.js inlines only
+ * `NEXT_PUBLIC_*` into the client bundle, so a server-only key added to that
+ * schema reads as `undefined` in the browser and throws while the bundle is
+ * still evaluating — taking the page down.
+ *
+ * That failure would not show up today, because `lib/insforge-client.ts` has no
+ * importers yet. It would appear the first time a client component imports it,
+ * far from the change that caused it. Hence the split.
+ *
+ * `serverEnv()` throws on a misconfigured deploy, which is correct. Callers on a
+ * request path catch it themselves so the user sees a service message rather
+ * than a crash.
+ */
+const serverEnvSchema = z.object({
+  ADZUNA_APP_ID: z.string().min(1, 'ADZUNA_APP_ID must not be empty'),
+  ADZUNA_APP_KEY: z.string().min(1, 'ADZUNA_APP_KEY must not be empty'),
+});
+
+let serverEnvCache: z.infer<typeof serverEnvSchema> | null = null;
+
+export function serverEnv(): z.infer<typeof serverEnvSchema> {
+  if (serverEnvCache !== null) {
+    return serverEnvCache;
+  }
+
+  const parsed = serverEnvSchema.safeParse({
+    ADZUNA_APP_ID: process.env.ADZUNA_APP_ID,
+    ADZUNA_APP_KEY: process.env.ADZUNA_APP_KEY,
+  });
+
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)
+      .join('\n');
+    throw new Error(`Invalid or missing environment variables:\n${issues}`);
+  }
+
+  serverEnvCache = parsed.data;
+  return serverEnvCache;
+}

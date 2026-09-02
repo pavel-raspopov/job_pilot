@@ -1,197 +1,169 @@
-# Memory — Feature 09 Find Jobs Page (Full UI)
+# Memory — Feature 10 Adzuna Job Discovery
 
-Last updated: 9/2/2026
+Last updated: 2026-09-02
 
 ## What was built
 
-Feature 09, the first item of Phase 3. `/find-jobs` had been linked from the
-Navbar and listed in `proxy.ts`'s protected routes since Feature 01, but the
-route did not exist — the link 404'd. It now serves the full page against a
-24-job mock array. No Adzuna, no DB, no AI, no PostHog event, no new dependency,
-no migration.
+Feature 10, the second item of Phase 3. `/find-jobs` no longer renders a mock
+array — it reads the signed-in user's saved jobs, and the Find Jobs button runs a
+real, billed search.
 
-OpenSpec change `add-find-jobs-ui` — proposed, applied, reviewed, and archived to
-`openspec/changes/archive/2026-09-02-add-find-jobs-ui/`. Its delta spec was
-merged into a new `openspec/specs/find-jobs/spec.md` (7 requirements, 23
-scenarios).
+OpenSpec change `add-adzuna-job-discovery` — proposed, applied, reviewed, and
+archived to `openspec/changes/archive/2026-09-02-add-adzuna-job-discovery/`. It
+created a new `openspec/specs/job-discovery/spec.md` (12 requirements, 38
+scenarios) and rewrote three requirements in `openspec/specs/find-jobs/spec.md`.
 
-- **New:** `app/(app)/find-jobs/page.tsx` (server component; holds the mock array
-  and derives the banner's counts), `components/find-jobs/SearchControls.tsx`,
-  `JobFilters.tsx`, `JobsTable.tsx`, `JobsPagination.tsx`, and `lib/utils.ts`
-  (`formatRelativeDate`, `HIGH_MATCH_THRESHOLD`).
-- **Modified:** `types/index.ts` (`Job`, `JobSource`, `MatchFilter`, `JobSort`),
-  `context/ui-registry.md`, `context/architecture.md`,
-  `context/progress-tracker.md`.
+- **New:** `agent/adzuna.ts` (search, country inference, salary formatting,
+  response normalisation), `agent/matcher.ts` (one batched scoring call),
+  `app/api/agent/find/route.ts`, `lib/parse-job.ts`.
+- **Modified:** `lib/env.ts` (lazy `serverEnv()`), `lib/ai-rate-limit.ts`
+  (`agent_find`, 10/hr), `types/index.ts` (`FindActionResult`),
+  `app/(app)/find-jobs/page.tsx` (async, DB-backed), `SearchControls.tsx`
+  (rewritten), `JobsTable.tsx` (three-way empty state + attribution).
+- No migration. `agent_runs`, `jobs` and `ai_usage.route` already covered it.
 
-The full decision record is in `context/progress-tracker.md` under "Feature 09
-Find Jobs Page — Full UI".
+The full decision record is in `context/progress-tracker.md` under "Feature 10
+Adzuna Job Discovery".
 
 ## Decisions made
 
-- **`JobsTable` is the stateful container, not a bare table.** It owns `query`,
-  `matchFilter`, `sort`, `page` and composes `JobFilters` and `JobsPagination`,
-  which are presentational. All three read one derived list, so one owner is
-  forced, and `architecture.md` fixes that directory at four files — a fifth
-  `JobsList.tsx` wrapper would contradict it. Recorded in both docs because the
-  name undersells the role.
-- **`HIGH_MATCH_THRESHOLD` (70) is one exported constant** in `lib/utils.ts`,
-  read by both the High Match filter and the green score band. They are the same
-  boundary; two literals would be free to drift. This is Feature 08's Critical
-  bug (two derivations of one list disagreeing) applied preventively. It went in
-  `lib/utils.ts`, not `types/index.ts`, because that file is types-only and fully
-  erasable.
-- **Six columns, not the design's five — a deliberate inversion of the usual
-  precedence.** The project default is that the design asset wins (Feature 05).
-  The developer overrode it: `jobs.source` is a real migrated column with
-  documented badge tokens, and the design predates the distinction.
-- **Rows are hover-only, not links.** `/find-jobs/[id]` is Feature 12; linking
-  now would ship a known 404, which the project already carried once.
-- **Filter/sort/search/pagination are live client-side** over the mock array, as
-  plain functions over an array, so Feature 11 replaces where the array comes
-  from rather than rewriting components.
-- **Where the design is internally inconsistent, derive rather than copy.** Its
-  footer says "1 to 6 of 24" beside 8 page buttons (24/6 = 4), so the page count
-  is computed and renders 4 — and there is no ellipsis, because truncation could
-  not be exercised at this scale and unverifiable code is worse than none. Its
-  banner copy ("8 jobs / 4 strong matches") was written against an 8-row mock, so
-  the counts are derived and passed as props; the summary cannot contradict the
-  rows on screen.
-- **Score bands follow `ui-tokens.md`, not the design.** The PNG paints some bars
-  blue; green-from-70 was already settled on 2026-07-31. No blue appears.
-- Mock data lives in `page.tsx` — the first file Feature 10 opens — rather than a
-  `lib/` module that would outlive its purpose by looking like infrastructure.
+- **Adzuna credentials use a separate `serverEnv()` accessor, not `envSchema`.**
+  `lib/env.ts` is imported by `lib/insforge-client.ts` (browser) and `proxy.ts`
+  (Edge), and `loadEnv()` runs at module load. A server-only key in that schema
+  is `undefined` in the browser and throws during bundle evaluation.
+  `insforge-client.ts` has no importers today, so it would have shipped green and
+  broken later, far from the cause. **Do not merge the two schemas.**
+- **One batched gateway call per search, with an explicit `job_index`** on every
+  scored entry. Positional trust is unsafe: a model returning 7 of 10 would shift
+  every later score onto the wrong employer, and all ten rows would still render
+  plausibly. Same call Feature 08 made with `role_index`.
+- **Scores are clamped and rounded before the insert.** `match_score` has
+  `CHECK (0..100)` and all ten rows go in one atomic `insert([...])`, so a single
+  `105` would reject the whole batch.
+- **The model benchmark reversed the assumption: `gemini-2.5-flash-lite` ships.**
+  Measured on the same payload — both 10/10 with correct indices, both inventing
+  zero skills, flash-lite slightly better spread and ~3.6x cheaper (~$0.0007 vs
+  ~$0.0025 a search). A model chosen for one task is not automatically right for
+  the next.
+- **Banner counts come from the response, not props** — reversing Feature 09.
+  Once the table holds history, `jobs.length` would say "Found 20 jobs" after a
+  search that found 10. Proven live: 20 rows on screen, banner said 10.
+- **The five structured columns stay NULL** (`responsibilities`, `requirements`,
+  `nice_to_have`, `benefits`, `about_company`). Adzuna returns a ~500-char
+  snippet, which goes in `about_role`. Feature 12 fills the rest honestly.
+- **`found_at` is left to the database default**, not stamped by the caller — the
+  list renders it as "2 hours ago".
+- **Country inference matches country names only**, never cities or state codes.
+  "San Francisco, CA" is California, "Indianapolis, IN" is Indiana.
 
 ## Problems solved
 
-- **A click that does nothing may be the harness, not the code.** With an
-  emulated viewport (1440x900) inside a small Browser pane, a click reported at
-  x=1307 was *delivered* at x=5392. Two controls looked completely dead. Proven
-  with a capture-phase `click` listener recording `event.clientX/Y`, then fixed
-  by clearing viewport emulation (`resize_window` preset `desktop`). **Reset
-  emulation before concluding a control is broken**, and prefer
-  `elementFromPoint` + a listener over guessing.
-- **`zoom` region-cropping is not supported in the Browser pane**, and an
-  emulated wide viewport renders unreadably small there. Verify UI facts with
-  `getComputedStyle` and the DOM instead of screenshots — stronger evidence
-  anyway. That is how all three colour bands were proven exact
-  (`#10B981` / `#FF8904` / `#99A1AF`) rather than eyeballed.
-- **A large TSX file breaks a bash heredoc.** `cat > file <<'EOF'` failed with a
-  parse error on `JobsTable.tsx`; the Write tool handled it. Also: this repo is
-  `core.autocrlf=true` and every file is CRLF, so anything written LF-first needs
-  `sed -i 's/\r$//; s/$/\r/'`.
-- **The in-app Browser pane holds no auth session**, so `/find-jobs` redirects to
-  login there and manual verification of any protected route needs the developer
-  to sign in first. Claude in Chrome (which would carry the real session) was not
-  connected this session.
-- **`<th scope="row">` centres its text** from the UA stylesheet. It was
-  invisible only because a `display:flex` child filled the content box. Caught by
-  reading computed `text-align`, not by looking.
-- **The InsForge MCP had never really worked — root cause found 2026-09-02.**
-  `${VAR}` in `.mcp.json` expands from **Claude Code's own process environment**,
-  not from `.claude/settings.local.json`. That `env` block feeds tool execution
-  (Bash sees the variables) but not the MCP config interpolator, so the server
-  received the literal string `${INSFORGE_API_BASE_URL}`, died on `new URL(...)`
-  with `ERR_INVALID_URL`, and Claude Code reported only `CONNECTION_CLOSED`.
-  **11 of 12 launches failed identically** from 2026-08-27 to 2026-09-02 —
-  FAIL at 14:44, SUCCESS at 18:04, FAIL every launch since. Why the 18:04 session
-  worked is **not recoverable**: `.mcp.json` stayed untracked until 21:54 that
-  day, so its contents at 18:04 are unknown, and the surrounding failures prove
-  placeholders were in play both before and after. Do not repeat the guess that
-  it was launched from a pre-exported shell; the root cause above stands on the
-  logged `ERR_INVALID_URL` in all 11 failures, independent of that one session.
-  The credentials were never the problem. Fixed by persisting `INSFORGE_API_KEY` and
-  `INSFORGE_API_BASE_URL` as Windows **user-scope** env vars;
-  `settings.local.json` keeps its copy for tool-side use. Verified by spawning
-  the server with the values read back from the user environment: full handshake,
-  17 tools including `run-raw-sql`. **Takes effect only in a Claude Code launched
-  from a NEW terminal** — a process inherits its parent's environment block, so
-  relaunching inside an already-open shell fails the same way. Documented in
-  `AGENTS.md`. Real MCP errors live in
-  `%LOCALAPPDATA%\claude-cli-nodejs\Cache\<project>\mcp-logs-<server>\*.jsonl` —
-  read them instead of guessing.
+- **`job_search_started` fired twice per search.** Both the client and the route
+  emitted it — 7 events for 4 searches, and a rate-limited search that never ran
+  was still counted. The planning artifacts had assigned the event to both
+  halves; that was the real defect. **The route owns it**, because only the
+  server knows whether a search survived the rate-limit check. `SearchControls`
+  lost its `userId` prop as a result.
+- **A zero-result search consumed no rate-limit slot**, contradicting the design.
+  `recordAiCall` sat after the zero-result branch, so a loop of nonsense queries
+  could drain the shared Adzuna quota while the limiter read zero — defeating the
+  reason the check runs before the provider. Fixed by recording the slot as soon
+  as the provider answers. Verified 6 -> 7; a provider outage still costs nothing.
+- **An unrecognised country silently falls back to a US search.** "Berlin,
+  Germany" returns nothing while the copy said "try a broader location" — advice
+  that could never work. The empty-state copy now names the four searchable
+  markets (US, UK, Canada, Australia).
+- **"Jobs by Adzuna" attribution was missing** from the implementation *and* the
+  proposal, though `project-overview.md` requires it and it is a condition of the
+  API terms. Now rendered by `JobsTable` whenever the user has saved jobs, not
+  gated on the active filter.
+- **`library-docs.md`'s Adzuna snippet has a real bug**: it reads `salary_max!`
+  while guarding only on `salary_min`, so a one-figure listing throws.
+  `formatSalary()` handles min-only, max-only and equal values.
+- **The InsForge MCP works now.** Root cause was `${VAR}` in `.mcp.json` reading
+  Claude Code's own process environment, not `settings.local.json`. Fixed by
+  Windows user-scope env vars; takes effect only after a **full app restart**
+  (close window, exit tray icon, end task) — there is no `claude` on PATH here,
+  so "open a new terminal" is not the fix.
 
 ## Current state
 
-- `npm run lint`, `npm run build`, `check:agents`, `check:sync`, and
-  `openspec validate --all --strict` (3 items) all pass.
-- **Verified live in the browser** against the signed-in app: all three colour
-  bands by computed `background-color` with exact boundaries (71 green / 69
-  orange, 53 orange / 49 grey) and no blue; banner reveal with no network
-  request; text filter matching company *and* role; High Match = 14, Low Match =
-  10; all three sorts reordering; page reset from page 2 on filter change;
-  pagination range and disabled edges; empty state and clear; rows carrying no
-  anchor and not navigating; hover on the hovered row only; mobile overflow
-  contained (doc 334px in a 349px viewport, 900px table in a 269px wrapper).
-  Console and server logs clean.
-- **Adversarial `/feature-review`: 3 Minor, 0 Critical, 0 Important.** Two fixed
-  (the centred `<th scope="row">`; the score bar announcing twice via `role="img"`
-  plus the adjacent visible percentage — the bar is now `aria-hidden`). One
-  deferred to Feature 10, marked with a comment in `JobsTable.tsx`.
-- Committed to `main`. Nothing deployed.
-- A dev server may still be running on port 3000 (`preview_start`,
-  `jobpilot-dev`).
+- `npm run lint`, `npm run build`, `npx tsc --noEmit`, `check:agents`,
+  `check:sync` and `openspec validate --all --strict` (3 specs) all pass.
+- **Verified live against the signed-in app**, not just reasoned about: three
+  synchronous clicks produced exactly one POST, one run row and one usage row;
+  a hostile model response (105, duplicate index, missing entry) clamped and
+  placed correctly; a gateway throw returned ten nulls with jobs still saved;
+  missing credentials produced a service message, a `failed` run, no slot
+  consumed and no key in any log; the rate limit refused before the run insert;
+  all five free-failure paths made zero provider/gateway calls; a load failure
+  showed distinct copy rather than "run your first search"; `London, UK` routed
+  to the `gb` market with `£` salaries.
+- **Adversarial `/feature-review`: 3 Important, 1 Minor, 0 Critical.** All three
+  Important fixed and re-verified before archive. The Minor (duplicates) is
+  deliberately deferred to Feature 11.
+- Not committed yet at the time of writing; nothing deployed.
+- Dev DB holds ~70 test job rows and ~10 runs from verification, including
+  duplicates. Harmless, but not clean seed data.
 
 ## Next session starts with
 
-`/opsx-propose` **Feature 10 Adzuna Job Discovery**.
+`/opsx-propose` **Feature 11 Filter + Sort + Pagination** — move filtering,
+sorting and pagination server-side, raise `PAGE_SIZE` from 6 to 20, and add
+deduplication.
 
-Before writing that route, read the **"Routes that call the AI gateway"**
-subsection of `context/code-standards.md` — `maxDuration`, the rate-limit check
-(`lib/ai-rate-limit.ts`), and a UI in-flight `useRef` guard are all mandatory,
-and each is there because it already cost real money or a real bug. The Find Jobs
-button is currently a plain submit with no ref guard: **it becomes a billed
-action the moment Feature 10 wires it to the gateway.**
+**Read this before designing dedup:** Adzuna's `redirect_url` is a *per-request
+tracking link*, so the same listing saved by two searches has two different
+`external_apply_url` values. Measured: grouping by URL found 0 duplicates while
+grouping by title+company found 8 listings at 3 copies each. **The apply URL
+looks like the natural key and is not one** — dedup needs a composite key
+(title + company at minimum).
 
-Feature 10 also needs the InsForge MCP. It failed to connect all session, was
-diagnosed afterwards, and is **fixed pending a restart from a new terminal** —
-see "Problems solved".
+`JobsTable.tsx` was built for this: the filter rules are plain functions over an
+array, so what changes is where the array comes from, not the component split.
 
 ## Open questions
 
-- **The empty state's copy assumes filters emptied the list.** With `jobs=[]` it
-  still reads "No jobs match the current filters" and renders no Clear button.
-  Unreachable while the array is hardcoded; Feature 10's first-ever search with
-  zero results lands exactly there. An unfiltered empty list needs "run your
-  first search", not "clear filters". Comment marks the spot in `JobsTable.tsx`.
-- **Relative dates under client/server clock skew.** Timestamps are computed once
-  on the server; the client formats them against its own clock. A viewer more
-  than an hour off would hydrate a different label than was rendered. Coarse
-  hour/day buckets keep the window small and it is a dev-only warning. Settling
-  it needs a deliberately skewed clock, or formatting server-side and passing a
-  label.
-- **Feature 13 still has no answer for how Stagehand reaches a model.** Stagehand
-  builds its own LLM client and cannot call
-  `insforge.ai.chat.completions.create`; likely an OpenAI-compatible base URL
-  pointed at the gateway. `architecture.md` and `library-docs.md` carry
-  placeholders under an UNRESOLVED note. Do not reintroduce `OPENAI_API_KEY`.
-- `ai_usage` retention is unhandled — rows outlive their window and nothing
-  prunes them. Cleanup statement is in migration `004`'s header comment.
-- Extraction still gets work-history dates wrong often enough that
-  review-before-save is load-bearing.
-- `maxDuration = 120` vs the hosting plan's ceiling — unverified, nothing
-  deployed.
+- **Two-payload benchmark is a thin sample** for flash-lite's index reliability.
+  The failure it guards against is a short reply leaving jobs unscored, which
+  shows as an em dash rather than a wrong number. Watch for those; re-measure if
+  the prompt or profile shape changes.
+- `location_searched` records "Remote" even though that search runs nationwide —
+  intent, not what executed. Matters when Feature 16 renders the activity feed.
+- An empty `match_reason` is stored as `''` and read back as `null`. Harmless
+  now; Feature 12 should confirm it renders as absent rather than blank.
+- Only four Adzuna markets are supported (us/gb/ca/au). Adding more is a one-line
+  map change in `agent/adzuna.ts`.
+- Feature 13 still has no answer for how Stagehand reaches a model. Do not
+  reintroduce `OPENAI_API_KEY`.
+- `agent_logs` still has no writer, and `agent/types.ts` was deliberately not
+  created — both recorded as decisions in `context/architecture.md`.
+- `ai_usage` retention is unhandled; cleanup statement is in migration `004`.
 - Feature 06 leftovers still open: save-success copy, resume file input not
-  resetting after upload, skills/industries tag input not clearing after "Add".
-- Refused AI requests return HTTP 200 with `{ success: false }` rather than 429.
-  Deliberate, but worth revisiting if those routes get a non-browser caller.
-- Cline and Cursor are not installed here; those config trees are unverified.
+  resetting, skills/industries tag input not clearing after "Add".
+- `maxDuration = 120` vs the hosting plan's ceiling — unverified, nothing deployed.
 
 ## Testing notes
 
 - **Verifying a protected route needs the developer to sign in** in the Browser
   pane first — the pane starts with no session.
-- **Reset viewport emulation before trusting a click** (see Problems solved).
-  `preview_start` → `jobpilot-dev` → navigate to `/find-jobs`.
-- Prefer `javascript_tool` + `getComputedStyle` over screenshots for colour and
-  layout facts in this pane.
-- `assets/CV Pavel Raspopau ….pdf` (121,878 bytes) is the extraction fixture and
-  matches what is in storage. **Not committed** — it holds real contact details.
+- **Reset viewport emulation before trusting a click** (`resize_window` preset
+  `desktop`); a small pane with emulation misdelivers coordinates.
+- Prefer `javascript_tool` + the DOM over screenshots for UI facts in this pane.
+- **To test the in-flight guard properly, dispatch clicks synchronously**
+  (`b.click(); b.click(); b.click()` in one tick). A `double_click` lets React
+  re-render between clicks and proves nothing — the whole point is that
+  `disabled` is still `false` at that moment.
+- **To test the rate limit without spending money**, insert rows straight into
+  `ai_usage` via `run-raw-sql`, then search; the refusal happens before the
+  provider call. Clean the synthetic rows up afterwards.
+- **To test a provider outage**, back up `.env.local`, invalidate
+  `ADZUNA_APP_KEY`, restart the dev server, search, then restore. Never print the
+  real values.
+- Pure agent modules can be exercised outside Next with a throwaway tsconfig
+  (`module: CommonJS`, `paths` for `@/*`, `outDir` inside the project). `tsc`
+  does **not** rewrite path aliases at emit — `sed` the `@/` requires in the
+  compiled output, and stub `lib/insforge-ai.js` because the InsForge SDK will
+  not load under CommonJS.
+- `assets/CV Pavel Raspopau ….pdf` is the extraction fixture; **not committed**.
 - **Never click Save Profile while testing extraction** — reload instead.
-- **The InsForge MCP connects at session start.** When it is down, drive it over
-  stdio with the command and env from `.mcp.json` + `.claude/settings.local.json`
-  (newline-delimited JSON-RPC: `initialize` → `notifications/initialized` →
-  `tools/call`). Each call re-spawns `npx`, so batch SQL into one call and expect
-  20–40s per invocation.
-- Rebuild the throwaway-tsconfig harness (`jsx: react-jsx`, `paths`, `outDir`
-  inside the project) for any PDF change — it is the only cheap way to test the
-  renderer outside Next.js.

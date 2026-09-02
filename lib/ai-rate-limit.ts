@@ -23,6 +23,7 @@ type InsforgeServerClient = Awaited<ReturnType<typeof createInsforgeServer>>;
 export const AI_ROUTE = {
   resumeExtract: "resume_extract",
   resumeGenerate: "resume_generate",
+  agentFind: "agent_find",
 } as const;
 
 export type AiRoute = (typeof AI_ROUTE)[keyof typeof AI_ROUTE];
@@ -47,6 +48,16 @@ type Limit = {
 const LIMITS: Record<AiRoute, Limit> = {
   resume_extract: { windowSeconds: 3600, max: 10 },
   resume_generate: { windowSeconds: 3600, max: 10 },
+  /**
+   * Counts SEARCHES, not listings: one search scores all ten of its results in a
+   * single batched gateway call, so ten an hour is ten billed calls, the same
+   * ceiling as the two routes above.
+   *
+   * It also caps the Adzuna free-tier quota, which is shared across every user
+   * of this app rather than per-account — which is why the check runs before the
+   * provider request, not just before the model call.
+   */
+  agent_find: { windowSeconds: 3600, max: 10 },
 };
 
 export type AiRateLimitVerdict =

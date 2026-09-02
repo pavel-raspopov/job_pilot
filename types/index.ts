@@ -127,6 +127,24 @@ export type GenerateActionResult = {
   downloadUrl?: string;
 };
 
+/**
+ * Result shape of `POST /api/agent/find`.
+ *
+ * Both counts describe **the search just performed**, not the user's stored
+ * total: a user with 24 saved jobs whose search finds 3 must be told 3. They are
+ * computed from the rows actually written, so the summary cannot contradict the
+ * list the page renders after refreshing.
+ *
+ * A search that legitimately finds nothing returns `success: true` with zeros —
+ * the search ran, the market was empty.
+ */
+export type FindActionResult = {
+  success: boolean;
+  error?: string;
+  jobsFound?: number;
+  strongMatches?: number;
+};
+
 /** How a job was discovered. Mirrors the `jobs.source` CHECK constraint. */
 export type JobSource = "search" | "url";
 

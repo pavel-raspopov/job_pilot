@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, SearchX } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Building2, CircleAlert, Search, SearchX } from "lucide-react";
 import { JobFilters } from "@/components/find-jobs/JobFilters";
 import { JobsPagination } from "@/components/find-jobs/JobsPagination";
 import { formatRelativeDate, HIGH_MATCH_THRESHOLD } from "@/lib/utils";
@@ -136,8 +137,74 @@ function SourceBadge({ source }: { source: Job["source"] }) {
   );
 }
 
+/**
+ * Why the list is empty. The remedies differ, so the copy has to.
+ *
+ * `no-matches` needs no "are filters active?" test: with an empty query and
+ * `matchFilter` at "all", `selectJobs` keeps every row, so reaching this branch
+ * with `jobs` non-empty *proves* a filter narrowed it away.
+ */
+type EmptyVariant = "load-failed" | "no-jobs" | "no-matches";
+
+const EMPTY_COPY: Record<EmptyVariant, string> = {
+  "load-failed": "Could not load your jobs. This is usually temporary.",
+  "no-jobs": "No jobs yet. Run a search above to find jobs matched to your profile.",
+  "no-matches": "No jobs match the current filters.",
+};
+
+const SECONDARY_BUTTON_CLASS =
+  "mt-4 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-secondary focus:outline-none focus:ring-1 focus:ring-accent";
+
+/**
+ * Local and unexported, like `MatchScoreCell` and `SourceBadge` above — the
+ * four-file limit on this directory is about exported components.
+ *
+ * `no-jobs` gets a plain `Search` icon rather than `SearchX`: the user has not
+ * searched yet, so an X over a magnifier asserts a failed search that never
+ * happened. It also gets no button, because the control it would point at is
+ * one card above and in view; the copy names the location instead.
+ */
+function EmptyState({
+  variant,
+  onClear,
+  onRetry,
+}: {
+  variant: EmptyVariant;
+  onClear: () => void;
+  onRetry: () => void;
+}) {
+  const Icon = variant === "load-failed" ? CircleAlert : variant === "no-jobs" ? Search : SearchX;
+
+  return (
+    <>
+      <Icon
+        className={`mx-auto h-6 w-6 ${
+          variant === "load-failed" ? "text-error" : "text-text-muted"
+        }`}
+        aria-hidden="true"
+      />
+      <p className="mt-3 text-sm text-text-muted">{EMPTY_COPY[variant]}</p>
+      {variant === "no-matches" ? (
+        <button type="button" onClick={onClear} className={SECONDARY_BUTTON_CLASS}>
+          Clear filters
+        </button>
+      ) : null}
+      {variant === "load-failed" ? (
+        <button type="button" onClick={onRetry} className={SECONDARY_BUTTON_CLASS}>
+          Try again
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 type Props = {
   jobs: Job[];
+  /**
+   * The `jobs` select failed. Empty for a reason no search or filter change
+   * fixes, so it must not be reported as "you have no jobs yet".
+   */
+  loadFailed: boolean;
 };
 
 /**
@@ -151,7 +218,8 @@ type Props = {
  * Rows show a hover state but are deliberately not links: `/find-jobs/[id]` is
  * Feature 12, and a control that leads to a missing page is worse than none.
  */
-export function JobsTable({ jobs }: Props) {
+export function JobsTable({ jobs, loadFailed }: Props) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [matchFilter, setMatchFilter] = useState<MatchFilter>("all");
   const [sort, setSort] = useState<JobSort>("score");
@@ -165,7 +233,13 @@ export function JobsTable({ jobs }: Props) {
   const rangeStart = (currentPage - 1) * PAGE_SIZE;
   const rows = visible.slice(rangeStart, rangeStart + PAGE_SIZE);
 
-  const hasActiveFilters = query.trim() !== "" || matchFilter !== "all";
+  // Precedence matters: a load failure must not be reported as an empty account,
+  // and an account with no jobs must not be told to clear filters it never set.
+  const emptyVariant: EmptyVariant = loadFailed
+    ? "load-failed"
+    : jobs.length === 0
+      ? "no-jobs"
+      : "no-matches";
 
   // Narrowing the list returns to page 1. Without this, a user on page 4 who
   // types a filter would be looking at a page that no longer exists.
@@ -232,32 +306,14 @@ export function JobsTable({ jobs }: Props) {
               </tr>
             </thead>
             <tbody>
-              {/*
-                FEATURE 10: this copy assumes filters are what emptied the list.
-                Once `jobs` comes from the database, a user's first-ever visit
-                arrives here with no jobs and no filters, and "no jobs match the
-                current filters" explains nothing. Split it then: an unfiltered
-                empty list needs "run your first search", not "clear filters".
-              */}
-              {rows.length === 0 ? (
+              {visible.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-16 text-center">
-                    <SearchX
-                      className="mx-auto h-6 w-6 text-text-muted"
-                      aria-hidden="true"
+                    <EmptyState
+                      variant={emptyVariant}
+                      onClear={clearFilters}
+                      onRetry={() => router.refresh()}
                     />
-                    <p className="mt-3 text-sm text-text-muted">
-                      No jobs match the current filters.
-                    </p>
-                    {hasActiveFilters ? (
-                      <button
-                        type="button"
-                        onClick={clearFilters}
-                        className="mt-4 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-secondary focus:outline-none focus:ring-1 focus:ring-accent"
-                      >
-                        Clear filters
-                      </button>
-                    ) : null}
                   </td>
                 </tr>
               ) : (
@@ -306,6 +362,17 @@ export function JobsTable({ jobs }: Props) {
           />
         ) : null}
       </section>
+
+      {/*
+        Provider attribution, required by `context/project-overview.md` ("Jobs by
+        Adzuna credit displayed on job listings") and a standard condition of the
+        Adzuna API terms. Shown whenever this user has saved listings at all —
+        not gated on the current filter — so narrowing the list cannot drop the
+        credit off the page.
+      */}
+      {jobs.length > 0 ? (
+        <p className="text-xs text-text-muted">Jobs by Adzuna</p>
+      ) : null}
     </div>
   );
 }

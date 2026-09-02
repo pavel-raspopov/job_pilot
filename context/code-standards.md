@@ -113,14 +113,19 @@ export async function POST(req: NextRequest) {
     // call agent function
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    console.error("[agent/find]", error);
-    return NextResponse.json(
-      { success: false, error: "Internal server error" },
-      { status: 500 },
-    );
+    console.error("[api/agent/find]", error);
+    return fail(SERVICE_ERROR);
   }
 }
 ```
+
+**Failures return HTTP 200 with `{ success: false, error }`, not a non-2xx.**
+Every shipped route does this through a local `fail()` helper, and every client
+checks `result.success` rather than `response.ok`. A bare non-2xx with an HTML
+body makes `response.json()` throw, and the user gets a generic fallback instead
+of the specific message the server wrote. Hoist user-facing strings to module
+constants (`AUTH_ERROR`, `SERVICE_ERROR`, `RATE_LIMIT_ERROR`) so they can be
+read in one place.
 
 - Every route handler has a try/catch
 - Every route handler validates the request body before processing
@@ -275,8 +280,8 @@ All environment variables defined in `.env.local` for development. Never hardcod
 | `NEXT_PUBLIC_INSFORGE_ANON_KEY` | lib/insforge-client.ts |
 | `BROWSERBASE_API_KEY`           | lib/browserbase.ts     |
 | `BROWSERBASE_PROJECT_ID`        | lib/browserbase.ts     |
-| `ADZUNA_APP_ID`                 | lib/adzuna.ts          |
-| `ADZUNA_APP_KEY`                | lib/adzuna.ts          |
+| `ADZUNA_APP_ID`                 | agent/adzuna.ts, via `serverEnv()` |
+| `ADZUNA_APP_KEY`                | agent/adzuna.ts, via `serverEnv()` |
 | `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` | instrumentation-client.ts, lib/posthog-server.ts |
 | `NEXT_PUBLIC_POSTHOG_HOST`          | lib/posthog-server.ts (server flush host)         |
 

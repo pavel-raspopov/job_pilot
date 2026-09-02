@@ -48,7 +48,7 @@ MCP credentials never go in a committed file. `.mcp.json` and `.cursor/mcp.json`
 
 So the MCP variables must exist in the **environment Claude Code is launched from**. On this machine `INSFORGE_API_KEY` and `INSFORGE_API_BASE_URL` are persisted as Windows **user-scope** environment variables (set 2026-09-02); `settings.local.json` keeps its copy for tool-side use. Two consequences worth knowing:
 
-- A process inherits its parent's environment block at spawn time, so after changing a user env var you need a **new terminal window** — relaunching `claude` inside an already-open shell inherits the stale block and fails identically.
+- A process inherits its parent's environment block at spawn time, so a changed user env var reaches Claude Code only after the **whole app is restarted**. On this machine Claude Code runs as the **desktop app** and there is no `claude` on PATH — "open a new terminal and run `claude`" is not the fix here. Close the window, exit it from the hidden-icons tray, and end any surviving task in Task Manager, then start it again. Done that way on 2026-09-02, the server connected and `run-raw-sql` returned live rows.
 - When the server will not connect, read the real error rather than guessing: `%LOCALAPPDATA%\claude-cli-nodejs\Cache\<project>\mcp-logs-<server>\*.jsonl`.
 
 ### AGENTS.md gets overwritten

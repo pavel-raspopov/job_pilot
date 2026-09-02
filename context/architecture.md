@@ -62,11 +62,11 @@
 │       │   │   └── fonts/                 → Inter Regular/SemiBold TTFs (see note)
 │       │   └── extract/route.ts           → Extract profile data from uploaded resume PDF (InsForge AI gateway, native PDF input)
 ├── agent/
-│   ├── adzuna.ts                          → Adzuna API job discovery + AI gateway scoring
+│   ├── adzuna.ts                          → Adzuna API job discovery (search, country, salary, normalisation)
 │   ├── research.ts                        → Company research — Browserbase + Stagehand + AI gateway
-│   ├── matcher.ts                         → Job matching logic (InsForge AI gateway)
+│   ├── matcher.ts                         → Batched job scoring against the profile (InsForge AI gateway)
 │   ├── extractor.ts                       → Job description extraction + structuring (AI gateway)
-│   └── types.ts                           → Agent-specific TypeScript types
+│   └── types.ts                           → Agent-specific types (NOT built — see note below)
 ├── actions/
 │   ├── auth.ts                            → signInWithOAuthAction, signOutAction
 │   ├── profile.ts                         → Profile save + update
@@ -112,8 +112,12 @@
 │   ├── insforge-ai.ts                     → InsForge AI gateway client (120s timeout; AI routes only)
 │   ├── browserbase.ts                     → Browserbase session creation + management
 │   ├── stagehand.ts                       → Stagehand initialisation with Browserbase session
-│   ├── adzuna.ts                          → Adzuna API client
 │   ├── posthog-server.ts                  → PostHog server client (server-side events)
+│   ├── env.ts                             → Boot-validated env (+ lazy serverEnv() for server-only vars)
+│   ├── ai-rate-limit.ts                   → Per-user limits for billed AI routes
+│   ├── profile-completion.ts              → Profile completeness + enum guards
+│   ├── parse-profile.ts                   → Untrusted `profiles` row → Profile
+│   ├── parse-job.ts                       → Untrusted `jobs` row → Job
 │   └── utils.ts                           → Shared utility functions
 └── types/
     └── index.ts                           → Global TypeScript types
@@ -126,6 +130,22 @@ resume's download link lives in the Resume card's existing footer row, beside
 the button that produced it, and `context/designs/profile.png` shows only the
 empty-state card, so no design binds the decision. Build it when a feature needs
 to *display* a resume rather than link to one.
+
+**`agent/types.ts` is planned but deliberately unbuilt.** Feature 10 was the
+first feature that could have created it and chose not to: each of its four
+agent types (`AdzunaCountry`, `AdzunaJob`, `AdzunaSearchResult`, `ScoredMatch`)
+has exactly one owning module and at most two consumers, so a shared types file
+would be a barrel by another name — which `code-standards.md` forbids outside
+`components/ui/`. Types are exported from the module that owns them. Build it
+when a third module needs a type it does not own. Same reasoning as
+`ResumePreview.tsx` above.
+
+**`agent_logs` has no writer yet.** `code-standards.md` describes a
+`logAgentError(runId, …)` helper under Agent Code; it does not exist, and
+Feature 10's scope never asked for it, so building the whole logging path for a
+single caller was out of scope. Feature 10 logs with the `[api/agent/find]` and
+`[agent/*]` console prefixes instead. Feature 13 genuinely needs the table and
+should build the helper.
 
 **`JobsTable.tsx` is the Find Jobs list container, not a bare table.** It owns
 the list's view state — text query, match filter, sort, page — derives the

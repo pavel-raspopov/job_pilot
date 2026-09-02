@@ -7,8 +7,8 @@ Update this file after every completed feature. Any AI agent reading this should
 ## Current Status
 
 **Phase:** Phase 3 — Find Jobs Page (in progress)
-**Last completed:** 09 Find Jobs Page — Full UI
-**Next:** 10 Adzuna Job Discovery
+**Last completed:** 10 Adzuna Job Discovery
+**Next:** 11 Filter + Sort + Pagination
 
 ---
 
@@ -31,7 +31,7 @@ Update this file after every completed feature. Any AI agent reading this should
 ### Phase 3 — Find Jobs Page
 
 - [x] 09 Find Jobs Page — Full UI
-- [ ] 10 Adzuna Job Discovery
+- [x] 10 Adzuna Job Discovery
 - [ ] 11 Filter + Sort + Pagination
 
 ### Phase 4 — Job Details Page
@@ -49,6 +49,96 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Feature 10 Adzuna Job Discovery (2026-09-02).** `/find-jobs` now reads real
+  data. `POST /api/agent/find` queries Adzuna, scores the results against the
+  profile in **one batched gateway call**, and writes `agent_runs` + `jobs`. The
+  24-row mock array is gone; the page is an async server component. No migration
+  — `agent_runs`, `jobs` and `ai_usage.route` already carried everything needed.
+  OpenSpec change `add-adzuna-job-discovery`.
+
+  - **Adzuna credentials get their own lazily-validated accessor**
+    (`serverEnv()` in `lib/env.ts`), NOT an entry in `envSchema`. `lib/env.ts` is
+    imported by `lib/insforge-client.ts` (browser) and `proxy.ts` (Edge), and
+    `loadEnv()` runs at module load — Next inlines only `NEXT_PUBLIC_*` into the
+    client bundle, so a server-only key in that schema throws while the bundle is
+    still evaluating. `insforge-client.ts` has no importers today, so it would
+    have shipped green and detonated later, far from the cause. Do not "tidy" the
+    two schemas into one.
+  - **`job_index` on every scored entry, never positional trust.** Same call
+    Feature 08 made with `role_index`: a model returning 7 of 10 would otherwise
+    shift every later score onto the wrong employer, and all ten rows would still
+    render plausibly. Verified against a response with a duplicate index, an
+    out-of-range index, and a missing entry.
+  - **Match scores are clamped and rounded before the insert.** Not hygiene:
+    `match_score` has `CHECK (0..100)` and all ten rows go in one atomic
+    `insert([...])`, so a single model-produced `105` would reject the whole
+    batch and turn a good search into a service error.
+  - **Rate-limit check before Adzuna, `recordAiCall` after it.** The check also
+    caps the Adzuna free-tier quota, which is shared across all users rather than
+    per-account. The split means a zero-result search still consumes a slot (so a
+    loop of nonsense queries cannot drain the quota) while a provider *outage*
+    never charges the user.
+  - **The model benchmark reversed the starting assumption.** Feature 08 chose
+    `gemini-2.5-flash` because flash-lite made a specific visible error there; on
+    this task it makes none. Measured on the same payload: both 10/10 with correct
+    indices, both inventing zero skills, flash-lite slightly better spread and
+    ~3.6x cheaper (~$0.0007 vs ~$0.0025 a search). **`gemini-2.5-flash-lite`
+    ships.** A model chosen for one task is not automatically right for the next —
+    measure per task, which is what the standard already says.
+  - **`job_search_started` fired twice per search until verification caught it.**
+    Both halves emitted it — 7 events for 4 searches, and a rate-limited search
+    that never ran was still counted. The route owns it now: only the server knows
+    whether a search survived the rate-limit check. `SearchControls` lost its
+    `userId` prop as a result. The planning artifacts had assigned the event to
+    both halves; that was the actual defect.
+  - **Three defects the adversarial review caught, all fixed before archive.**
+    (1) The code contradicted its own design on rate limiting: `recordAiCall` sat
+    after the zero-result branch, so a search that found nothing consumed no
+    allowance unit — meaning a loop of zero-result queries could drain the shared
+    Adzuna quota while the limiter read zero, defeating the whole reason the check
+    runs before the provider. Proven by measurement (`ai_usage` unchanged at 6
+    across a zero-result search), fixed, re-measured (6 -> 7). (2) The "Jobs by
+    Adzuna" credit required by `project-overview.md` and the provider's terms was
+    missing from both the implementation *and* the proposal — a planning gap, not
+    just a coding one. (3) An unrecognised country silently falls back to a US
+    search, so "Berlin, Germany" returned nothing while the empty-state copy said
+    "try a broader location" — advice that could never work. The copy now names the
+    four searchable markets.
+  - **Adzuna's `redirect_url` is a per-request tracking link, so it cannot be a
+    dedup key.** Three searches for one query produced 8 listings at 3 copies each,
+    with three *different* `external_apply_url` values — grouping by URL finds zero
+    duplicates. Feature 11 owns dedup and needs a composite key (title + company at
+    minimum). Recorded here because the obvious key looks correct and is not.
+  - **Scoring failure degrades to saved-but-unscored jobs**, mirroring Feature
+    08's "a failed rewrite degrades to plain-but-correct". The listings are real
+    and the user paid the wait; a repeat search bills them again.
+  - **Counts come from the response, not from props** — reversing Feature 09's
+    decision, deliberately. That decision existed so the banner could not
+    contradict the rows; once the table holds history the truthful number is the
+    *run's*, and `jobs.length` would report "Found 27 jobs" after a search that
+    found 3. `ui-registry.md` was rewritten rather than left contradicting it.
+  - **Country inference matches country names only.** "San Francisco, CA" is
+    California, "Indianapolis, IN" is Indiana, "London, ON" is Ontario. A city or
+    state list looks helpful and silently searches the wrong country, whose only
+    symptom is an empty result the user cannot explain.
+  - **Four documented conflicts resolved**: `agent/adzuna.ts` over
+    `lib/adzuna.ts` (`architecture.md` contradicted itself; the stale `lib/` line
+    is deleted); `serverEnv()` over `process.env.X!`; HTTP 200 + `{success:false}`
+    over the doc's `status: 500` (both shipped routes already did this, and
+    clients read `result.success`); and no `agent_logs` writer.
+  - **Two deliberate deferrals, recorded as decisions rather than omissions.**
+    `agent_logs` has no writer — `code-standards.md` asserts a `logAgentError()`
+    that does not exist, and building the whole path for one caller was out of
+    scope; Feature 13 needs it and should build it. `agent/types.ts` was not
+    created — each agent type has one owning module and at most two consumers, so
+    it would be a barrel by another name. Both are noted in `architecture.md`.
+  - **`found_at` is left to the database default**, not stamped by the caller —
+    the list renders it as "2 hours ago", and a caller-set value invites a
+    client/server clock disagreement in exactly that column.
+  - **`library-docs.md`'s Adzuna snippet has a real bug**: it reads
+    `salary_max!` while guarding only on `salary_min`, so a listing with one
+    figure throws. `formatSalary()` handles min-only, max-only and equal values.
 
 - **Feature 09 Find Jobs Page — Full UI (2026-09-02).** `/find-jobs` now exists;
   the Navbar link had 404'd since Feature 01. Search controls, filter bar, a
