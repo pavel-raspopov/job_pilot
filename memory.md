@@ -1,6 +1,6 @@
-# Memory — Feature 11 Filter + Sort + Pagination
+# Memory — Feature 11 Filter + Sort + Pagination, then the matcher fix
 
-Last updated: 2026-10-02
+Last updated: 2026-10-02 (matcher fix merged after Feature 11)
 
 ## What was built
 
@@ -27,6 +27,13 @@ archived `design.md` (D6, D8, D10, D12).
   `build-plan.md`, `progress-tracker.md`.
 - No migration, no dependency, no new PostHog event.
 
+**Matcher fix**, a separate session, committed on top of Feature 11: some
+searches had saved every listing unscored. `agent/matcher.ts` reads every tool
+call, retries once, pins `minItems`, and logs drop counts; comments updated in
+`lib/ai-rate-limit.ts` and `app/api/agent/find/route.ts`. No OpenSpec change —
+a bug fix; the record is the tracker entry "Fix: searches saved every listing
+unscored".
+
 ## Decisions made
 
 All recorded in the tracker and the archived design. The ones that would hurt
@@ -45,6 +52,14 @@ to undo by accident:
 - **Deduplication is its own change, next.** A pre-dedup count beside a
   post-dedup range would make the footer lie. Adzuna's `redirect_url` is a
   per-request tracking link — not a key; title + company at minimum.
+- **Matcher: never go back to reading only `tool_calls[0]`, and keep
+  `minItems` = job count on `matches`.** flash-lite intermittently sent an empty
+  `{"matches":[]}`, alone or ahead of a second call. The gateway enforces
+  `minItems` (probed). No `maxItems` — a capped array spills into extra parallel
+  calls instead of stopping.
+- **The scoring retry does not consume a search slot** (the flakiness is the
+  model's): worst case 20 billed calls an hour, noted in `LIMITS`. The developer
+  has not ruled on this — revisit if they want retries counted.
 
 ## Problems solved
 
@@ -62,6 +77,11 @@ to undo by accident:
   Fixed by sending waiting text on blur; Back/Forward cancels it.
 - **The current page button was never highlighted** (since Feature 09): an
   appended `bg-accent-muted` loses to `bg-surface` on stylesheet order.
+- **"scored 0 of 10" was an empty tool call, not dropped entries.** The
+  string-typed-index theory was refuted by response size alone: the InsForge
+  request log showed the failing `/chat/completion` at 284 bytes against 5,851
+  for a good one. 3 of 19 first replies on that payload opened empty before the
+  fix; 10 of 10 scored first time after it, and the live check scored 10/10.
 
 ## Current state
 
@@ -75,11 +95,12 @@ to undo by accident:
   seven Minors fixed and re-verified live; one Minor accepted (Next clicked
   within 300 ms of typing lands on page 2 of the new filter).
 - Committed with this memory file; nothing deployed.
-- Dev DB: 30 real jobs from 3 searches, no seed rows. 10 of them are unscored.
-- **A separate session is diagnosing the matcher** ("scored 0 of 10" on one
-  search, 10/10 on the next — intermittent): worktree
-  `.claude/worktrees/dazzling-tu-fce5b9`, branch `claude/dazzling-tu-fce5b9`,
-  not merged. It owns `agent/matcher.ts`.
+- Dev DB: 30 real jobs from 3 searches, no seed rows. The 10 unscored ones are
+  from the original pre-fix failure (run `e706a8d4…`); safe to delete.
+- **Matcher fix is merged** on top of Feature 11. Lint, tsc and build pass on
+  the rebased code; a 13-case offline harness (empty, partial, throwing, slow and
+  malformed replies) never throws, never exceeds two calls, and logs no reason
+  text.
 
 ## Next session starts with
 
@@ -88,9 +109,11 @@ to undo by accident:
 apply URL). Read `build-plan.md` Feature 11's dedup note and the Feature 10
 tracker entry on `redirect_url` first. Then Feature 12 Job Details Page.
 
-Check the matcher session's outcome before touching `agent/matcher.ts`.
-
 ## Open questions
+
+- **`missing_skills` can contradict the profile** — one scoring reply listed
+  React and TypeScript as missing for a candidate who has both. Never
+  benchmarked; settle it before Feature 12 renders the skill lists.
 
 - Next fetches bare `/find-jobs` twice per navigation (dev and prod; a direct
   `router.push` reproduces it). Harmless, cause unknown.
@@ -120,6 +143,15 @@ Check the matcher session's outcome before touching `agent/matcher.ts`.
   needs `enable row level security` (no policies) and a `drop` afterwards.
 - **To test a timing race, reproduce it live** — the static review graded the
   navbar race Minor; 3/3 live reproduction made it Important.
+- **Benchmark scoring without spending searches:** call the gateway directly with
+  the SDK's `createClient` (anon key from `.env.local`, `retryCount: 0`) and the
+  matcher's own prompt and tool builders. That bypasses the route, so it uses no
+  Adzuna quota and no `ai_usage` slot. Usage arrives camelCase
+  (`completionTokens`). `get-container-logs insforge.logs` records each
+  `/chat/completion`'s response size and duration.
+- **The scratchpad is wiped between sessions** — a harness written there will be
+  gone. A grep for failure counts over a script that never ran reads as a clean
+  pass; check that the expected number of cases actually ran.
 - Carried over: reset viewport emulation before trusting a click; dispatch
   synchronous clicks to test in-flight guards; test the rate limit by inserting
   `ai_usage` rows; never print `.env.local` values; `assets/CV …pdf` is the

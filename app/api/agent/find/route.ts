@@ -20,7 +20,8 @@ import type { FindActionResult } from "@/types";
  * Adzuna job discovery.
  *
  * The first route in this app where a button press spends money: one batched
- * gateway call plus one request against a shared Adzuna quota. `maxDuration`
+ * gateway call (two when the first reply leaves jobs unscored — see
+ * `scoreJobs`) plus one request against a shared Adzuna quota. `maxDuration`
  * must be at least `AI_TIMEOUT_MS` (120s) or the route inherits the platform
  * default and dies in production while passing every local test.
  */

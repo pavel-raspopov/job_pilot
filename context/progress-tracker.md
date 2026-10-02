@@ -50,6 +50,46 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ## Decisions Made During Build
 
+- **Fix: searches saved every listing unscored (2026-09-24).** One live search
+  logged `scored 0 of 10` with no error line. The obvious suspect — entries with
+  string-typed `job_index`/`match_score` silently dropped by the schema's
+  `.catch(undefined)` — was **refuted by the backend request log**: the failing
+  `/chat/completion` returned **284 bytes** against 5,851 for a good one, and ten
+  entries of any shape need 467+. Replaying that exact request against the
+  gateway (no route, no rate-limit slot) reproduced it at the first call.
+
+  - **Root cause: flash-lite intermittently answers the forced tool call with an
+    empty `record_matches({"matches":[]})`** — sometimes alone (4 completion
+    tokens, <1.5s), once followed by a second call that `matcher.ts` never read,
+    because it read only `tool_calls[0]`. An empty array is schema-valid, so
+    nothing rejected it. 3 of 19 first replies on that payload opened empty.
+  - **Three changes, each measured.** (1) Read *every* tool call and concatenate
+    their entries — index placement already makes that safe. (2) One retry when a
+    reply leaves jobs unscored; earlier scores win, the retry only fills gaps, and
+    it is skipped if the first attempt took over 20s so the route cannot overrun
+    `maxDuration`. It caught a live empty reply in the benchmark. (3) `minItems`
+    pinned to the job count on `matches`. A probe proved the gateway **enforces**
+    it (asked for an empty list, the model still returned 3 of 3 required), and
+    10 of 10 calls then scored at the first attempt with no filler entries.
+  - **No `maxItems`, deliberately:** a probe showed a capped array makes the model
+    spill the rest into extra parallel tool calls rather than stop — more evidence
+    for (1), and no saving.
+  - **The retry does not consume a search slot** — the flakiness is the model's.
+    Worst case is therefore 20 billed calls an hour, recorded in `LIMITS`.
+  - **Drops are now counted and logged** per reason (`noIndex`,
+    `indexOutOfRange`, `duplicateIndex`, `noScore`) with the raw entry count and
+    the *shape* of the first dropped entry — key names and value kinds such as
+    "numeric string", never values, since the reasons are written about the
+    profile. The gateway reports usage in camelCase (`completionTokens`), not
+    OpenAI's snake_case.
+  - **Surplus entries are common and harmless:** 5 of 28 direct replies appended
+    extra entries at out-of-range indices (one repeated the whole list as 10-19,
+    ~2,000 tokens against the 3,072 cap). They log at info level.
+  - **Open, not fixed here:** one good reply listed React and TypeScript as
+    *missing* skills though both are in the profile. The Feature 10 benchmark
+    checked only that `matched_skills` invents nothing; `missing_skills`
+    contradicting the profile was never measured.
+
 - **Feature 11 Filter + Sort + Pagination (2026-09-24).** `/find-jobs` no longer
   fetches every saved job and slices it in the browser. The page reads `q` /
   `match` / `sort` / `page` from the URL and runs one filtered, ordered, counted,
@@ -105,8 +145,9 @@ Update this file after every completed feature. Any AI agent reading this should
     clicking Next within 300 ms of typing lands on page 2 of the new filter —
     the user asked for the next page.
   - **Found in verification, out of scope:** the one real search scored 0 of 10
-    listings (`[agent/matcher] scored 0 of 10`, no error logged — entries dropped
-    silently in `mapScoredMatches`). Spun out as its own task.
+    listings (`[agent/matcher] scored 0 of 10`, no error logged). Spun out as its
+    own task — the cause was an empty tool call, not dropped entries; see the fix
+    entry above.
 
 - **Feature 10 Adzuna Job Discovery (2026-09-02).** `/find-jobs` now reads real
   data. `POST /api/agent/find` queries Adzuna, scores the results against the

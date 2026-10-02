@@ -50,8 +50,14 @@ const LIMITS: Record<AiRoute, Limit> = {
   resume_generate: { windowSeconds: 3600, max: 10 },
   /**
    * Counts SEARCHES, not listings: one search scores all ten of its results in a
-   * single batched gateway call, so ten an hour is ten billed calls, the same
-   * ceiling as the two routes above.
+   * single batched gateway call, so ten an hour is normally ten billed calls, the
+   * same ceiling as the two routes above.
+   *
+   * The ceiling is twenty in the worst case: `scoreJobs` retries once when a
+   * reply leaves jobs unscored, and that retry deliberately does not consume a
+   * search — the flakiness is the model's, not the user's. At ~$0.0007 a call
+   * that is ~$0.014 an hour per account, and the retry is rare in practice (0 of
+   * 10 measured once the tool schema pinned `minItems`).
    *
    * It also caps the Adzuna free-tier quota, which is shared across every user
    * of this app rather than per-account — which is why the check runs before the

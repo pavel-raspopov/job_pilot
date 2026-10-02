@@ -10,6 +10,7 @@ import type { AdzunaJob } from "@/agent/adzuna";
  *
  * One batched gateway call covers the whole page of results: ten separate calls
  * would cost roughly ten times as much for reasoning the list does not yet show.
+ * A second call is made only when the first leaves a job unscored.
  *
  * **Nothing here throws.** Every failure degrades to an unscored batch, because
  * the listings themselves are real and useful, and making the user search again
@@ -57,6 +58,12 @@ export type ScoredMatch = {
  * shows in the UI as an em dash rather than a wrong number. Revisit if unscored
  * rows start appearing, and re-measure if the prompt or the profile shape
  * changes materially.
+ *
+ * Unscored rows did appear (2026-09-24), and re-measuring found the cause in
+ * the tool call's SHAPE, not in the model's judgement: an intermittent empty
+ * `matches` array (see `MAX_SCORING_ATTEMPTS`). All 26 direct replies that
+ * were not empty placed all ten jobs with correct indices, so the model stays;
+ * `buildMatchingTool`, `requestScores` and the retry handle the shape.
  */
 const MATCHING_MODEL = "google/gemini-2.5-flash-lite";
 
@@ -64,10 +71,39 @@ const MATCHING_MODEL = "google/gemini-2.5-flash-lite";
  * Caps output, the dominant cost driver. Ten entries of one short paragraph plus
  * two brief skill lists runs ~1,000 tokens; this leaves roughly 3x headroom.
  *
- * Truncation breaks the tool-call JSON, which degrades to an unscored batch —
- * the jobs still save — rather than to a half-written set of scores.
+ * Truncation breaks the tool-call JSON, which gets one retry and otherwise
+ * degrades to an unscored batch — the jobs still save — rather than to a
+ * half-written set of scores. A real near-miss: one reply repeated the whole
+ * list with indices 10-19, spending ~2,000 tokens of this cap.
  */
 const MATCHING_MAX_TOKENS = 3072;
+
+/**
+ * One retry, made only when the first reply left a job unscored — the backstop
+ * behind `buildMatchingTool`'s `minItems`.
+ *
+ * The failure it was added for: flash-lite sometimes answered the forced tool
+ * call with an empty `record_matches({"matches":[]})`. That is a valid call, so
+ * nothing upstream rejected it, and on 2026-09-24 a 284-byte reply of exactly
+ * that kind saved ten live listings unscored. It is intermittent, not
+ * payload-driven — replaying that exact request, 2 of 17 direct calls opened
+ * empty, and one of them was recovered by this retry. `minItems` now forbids
+ * the empty array itself; the retry still covers what it cannot: a truncated
+ * reply, a gateway error, entries with no usable index or score.
+ *
+ * The retry is billed but does NOT consume a search from the user's allowance —
+ * the flakiness is the model's, not the user's. `LIMITS` in
+ * `lib/ai-rate-limit.ts` records the ceiling that implies.
+ */
+const MAX_SCORING_ATTEMPTS = 2;
+
+/**
+ * A first attempt slower than this is not retried. The empty reply the retry
+ * exists for comes back fast (1.3s measured, against 4-9s for a full one), and
+ * a slow attempt followed by a second call could run the route past its
+ * `maxDuration` — losing the listings, which are only saved after scoring.
+ */
+const RETRY_WINDOW_MS = 20_000;
 
 /** Keeps output bounded and the eventual detail view readable. */
 const MAX_SKILLS_PER_LIST = 6;
@@ -147,51 +183,71 @@ const PROMPT = [
   "- Plain text only. No markdown.",
 ].join("\n");
 
-const MATCHING_TOOL = {
-  type: "function" as const,
-  function: {
-    name: "record_matches",
-    description: "Record one match assessment per job.",
-    parameters: {
-      type: "object",
-      required: ["matches"],
-      properties: {
-        matches: {
-          type: "array",
-          description: "One entry per input job, in the same order as the input.",
-          items: {
-            type: "object",
-            required: ["job_index", "match_score", "match_reason"],
-            properties: {
-              job_index: {
-                type: "number",
-                description: "Zero-based index of the job in the input list.",
-              },
-              match_score: {
-                type: "number",
-                description: "Integer 0-100.",
-              },
-              match_reason: {
-                type: "string",
-                description: "2-3 sentences addressed to the candidate.",
-              },
-              matched_skills: {
-                type: "array",
-                maxItems: MAX_SKILLS_PER_LIST,
-                items: { type: "string" },
-              },
-              missing_skills: {
-                type: "array",
-                maxItems: MAX_SKILLS_PER_LIST,
-                items: { type: "string" },
+/**
+ * The scoring tool, with `minItems` pinned to this batch's job count.
+ *
+ * The gateway's constrained decoding ENFORCES `minItems` — measured: a tool
+ * demanding at least 3 items, prompted for an empty list, still returned 3. So
+ * the empty `{"matches":[]}` reply described at `MAX_SCORING_ATTEMPTS` becomes
+ * unrepresentable rather than merely discouraged.
+ *
+ * Measured with it in place: 10 of 10 calls on the payload that had failed
+ * scored 10/10 at the first attempt, indices 0-9 in order, no filler entries
+ * (shortest reason 174 chars, no zero scores). Without it, 3 of 19 first
+ * replies on that payload — 17 direct calls, 2 live searches — opened empty.
+ *
+ * Deliberately no matching `maxItems`: measured, a capped array does not stop
+ * the model, it spills the remainder into a second parallel tool call — which
+ * `requestScores` reads anyway, so the cap would buy nothing.
+ */
+function buildMatchingTool(jobCount: number) {
+  return {
+    type: "function" as const,
+    function: {
+      name: "record_matches",
+      description: "Record one match assessment per job.",
+      parameters: {
+        type: "object",
+        required: ["matches"],
+        properties: {
+          matches: {
+            type: "array",
+            minItems: jobCount,
+            description: "One entry per input job, in the same order as the input.",
+            items: {
+              type: "object",
+              required: ["job_index", "match_score", "match_reason"],
+              properties: {
+                job_index: {
+                  type: "number",
+                  description: "Zero-based index of the job in the input list.",
+                },
+                match_score: {
+                  type: "number",
+                  description: "Integer 0-100.",
+                },
+                match_reason: {
+                  type: "string",
+                  description: "2-3 sentences addressed to the candidate.",
+                },
+                matched_skills: {
+                  type: "array",
+                  maxItems: MAX_SKILLS_PER_LIST,
+                  items: { type: "string" },
+                },
+                missing_skills: {
+                  type: "array",
+                  maxItems: MAX_SKILLS_PER_LIST,
+                  items: { type: "string" },
+                },
               },
             },
           },
         },
       },
     },
-  },
-};
+  };
+}
 
 /**
  * Model output is untrusted: every field optional and individually caught, so
@@ -237,6 +293,24 @@ function toScore(value: number): number {
 }
 
 /**
+ * Why `mapScoredMatches` discarded an entry. `noIndex` and `noScore` cover a
+ * field that was present but unusable as well as one that was absent — the
+ * schema's per-field `catch` makes those indistinguishable after validation,
+ * which is why `describeEntry` reads the raw entry instead.
+ */
+export type DropReason = "noIndex" | "indexOutOfRange" | "duplicateIndex" | "noScore";
+
+/** The placed scores, plus what was discarded and why. */
+export type MatchPlacement = {
+  /** Index-aligned with the jobs; `null` where nothing usable was returned. */
+  results: (ScoredMatch | null)[];
+  /** Discarded entries per reason. All zero on a clean response. */
+  dropped: Record<DropReason, number>;
+  /** Where in `entries` the first discard happened, or `null` if none did. */
+  firstDrop: { position: number; reason: DropReason } | null;
+};
+
+/**
  * Places each model entry on the job it was produced for.
  *
  * Exported because this is where the two rules that protect the batch live, and
@@ -246,22 +320,45 @@ function toScore(value: number): number {
  * wrong employer, and all ten rows would still render plausibly.
  *
  * Entries that are out of range, duplicated (first wins), or carry no score are
- * dropped silently: a null match is a recoverable outcome, and there is nothing
- * the user could do with the detail.
+ * dropped rather than failing the batch: a null match is a recoverable outcome,
+ * and there is nothing the user could do with the detail. The drops are
+ * COUNTED, though — a response that loses every entry looks exactly like a
+ * clean one otherwise, and the caller logs the tally.
  */
 export function mapScoredMatches(
   entries: RawMatchEntry[],
   jobCount: number,
-): (ScoredMatch | null)[] {
+): MatchPlacement {
   const results = new Array<ScoredMatch | null>(jobCount).fill(null);
+  const dropped: Record<DropReason, number> = {
+    noIndex: 0,
+    indexOutOfRange: 0,
+    duplicateIndex: 0,
+    noScore: 0,
+  };
+  let firstDrop: MatchPlacement["firstDrop"] = null;
 
-  for (const entry of entries) {
+  for (const [position, entry] of entries.entries()) {
+    const drop = (reason: DropReason) => {
+      dropped[reason] += 1;
+      firstDrop ??= { position, reason };
+    };
     const index = entry.job_index;
 
-    if (index === undefined || index >= jobCount || results[index] !== null) {
+    if (index === undefined) {
+      drop("noIndex");
+      continue;
+    }
+    if (index >= jobCount) {
+      drop("indexOutOfRange");
+      continue;
+    }
+    if (results[index] !== null) {
+      drop("duplicateIndex");
       continue;
     }
     if (entry.match_score === undefined) {
+      drop("noScore");
       continue;
     }
 
@@ -273,11 +370,157 @@ export function mapScoredMatches(
     };
   }
 
-  return results;
+  return { results, dropped, firstDrop };
+}
+
+/** A value's kind, never the value itself. "numeric string" is the telling one. */
+function describeValue(value: unknown): string {
+  if (value === undefined) {
+    return "missing";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return "non-finite number";
+    }
+    if (!Number.isInteger(value)) {
+      return "fractional number";
+    }
+    return value < 0 ? "negative integer" : "integer";
+  }
+  if (typeof value === "string") {
+    return /^\s*-?\d+(\.\d+)?\s*$/.test(value) ? "numeric string" : "string";
+  }
+  return typeof value;
 }
 
 /**
- * Scores every job against the profile in ONE gateway call.
+ * The shape of one raw model entry, safe to log: its type, its key names, and
+ * the kind of value in the two fields placement depends on.
+ *
+ * Never a value. `match_reason` and the skill lists are written about the
+ * candidate's profile, and the profile must not reach a log.
+ */
+function describeEntry(entry: unknown): Record<string, unknown> {
+  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+    return { entry: describeValue(entry) };
+  }
+  const record = entry as Record<string, unknown>;
+  return {
+    entry: "object",
+    // Names only, capped: a key is model-chosen text, so bound what it can carry.
+    keys: Object.keys(record)
+      .slice(0, 8)
+      .map((key) => key.slice(0, 32)),
+    jobIndex: describeValue(record.job_index),
+    matchScore: describeValue(record.match_score),
+  };
+}
+
+type AiClient = Awaited<ReturnType<typeof createAiClient>>;
+
+/** What one gateway call produced, before placement. */
+type ScoringReply = {
+  /** Validated entries from every `record_matches` call, in order. */
+  entries: RawMatchEntry[];
+  /** The same entries as the model sent them, index-aligned, for `describeEntry`. */
+  raw: unknown[];
+  toolCalls: number;
+  model: unknown;
+  completionTokens: unknown;
+};
+
+/**
+ * One scoring call. Never throws: `null` means the call produced nothing usable,
+ * and the reason has already been logged.
+ *
+ * Reads EVERY tool call, not only the first. flash-lite has been measured
+ * answering with two `record_matches` calls, the first of them
+ * `{"matches":[]}` — read alone, that empty first call looks like a complete,
+ * valid answer, and every listing saves unscored.
+ */
+async function requestScores(
+  aiClient: AiClient,
+  content: string,
+  tool: ReturnType<typeof buildMatchingTool>,
+): Promise<ScoringReply | null> {
+  try {
+    const completion = await aiClient.ai.chat.completions.create({
+      model: MATCHING_MODEL,
+      messages: [{ role: "user", content }],
+      maxTokens: MATCHING_MAX_TOKENS,
+      tools: [tool],
+      // Safe to force, as in generation: the input is our own validated profile
+      // plus listings we fetched, so there is no unreadable case to fabricate
+      // around.
+      toolChoice: "required",
+    });
+
+    const toolCalls: unknown = completion?.choices?.[0]?.message?.tool_calls;
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+      console.error("[agent/matcher] no tool call in completion");
+      return null;
+    }
+
+    const entries: RawMatchEntry[] = [];
+    const raw: unknown[] = [];
+    let usableCalls = 0;
+
+    for (const toolCall of toolCalls) {
+      const rawArguments: unknown = toolCall?.function?.arguments;
+      if (typeof rawArguments !== "string") {
+        console.error("[agent/matcher] tool call carried no arguments");
+        continue;
+      }
+
+      let parsedArguments: unknown;
+      try {
+        parsedArguments = JSON.parse(rawArguments);
+      } catch {
+        // The truncation case: output hit the token cap mid-JSON.
+        console.error("[agent/matcher] tool arguments were not valid JSON");
+        continue;
+      }
+
+      const validated = matchesSchema.safeParse(parsedArguments);
+      if (!validated.success || validated.data.matches === undefined) {
+        console.error("[agent/matcher] schema rejected the scoring response");
+        continue;
+      }
+
+      usableCalls += 1;
+      entries.push(...validated.data.matches);
+      // Same length as the validated list: every element passes `matchEntrySchema`
+      // (it catches to `{}`), and `matches` is only defined when this is an array.
+      raw.push(...(parsedArguments as { matches: unknown[] }).matches);
+    }
+
+    if (usableCalls === 0) {
+      return null;
+    }
+
+    return {
+      entries,
+      raw,
+      toolCalls: toolCalls.length,
+      model: completion?.model,
+      // The gateway reports usage in camelCase, not OpenAI's snake_case.
+      completionTokens: completion?.usage?.completionTokens,
+    };
+  } catch (error) {
+    console.error("[agent/matcher] scoring failed", error);
+    return null;
+  }
+}
+
+/**
+ * Scores every job against the profile in one gateway call — two when the first
+ * reply leaves any job unscored (see `MAX_SCORING_ATTEMPTS`).
  *
  * Returns an array INDEX-ALIGNED with `jobs`; `null` means the model returned
  * nothing usable for that job. Never throws, and never discards the whole batch
@@ -288,62 +531,79 @@ export async function scoreJobs(
   profile: Profile,
   jobs: AdzunaJob[],
 ): Promise<(ScoredMatch | null)[]> {
-  const unscored = (): (ScoredMatch | null)[] => new Array<ScoredMatch | null>(jobs.length).fill(null);
+  let results = new Array<ScoredMatch | null>(jobs.length).fill(null);
 
   if (jobs.length === 0) {
-    return [];
+    return results;
   }
 
+  let aiClient: AiClient;
   try {
-    const aiClient = await createAiClient();
-    const completion = await aiClient.ai.chat.completions.create({
-      model: MATCHING_MODEL,
-      messages: [
-        {
-          role: "user",
-          content: `${PROMPT}\n\nCANDIDATE PROFILE:\n${buildProfileInput(
-            profile,
-          )}\n\nJOBS:\n${buildJobsInput(jobs)}`,
-        },
-      ],
-      maxTokens: MATCHING_MAX_TOKENS,
-      tools: [MATCHING_TOOL],
-      // Safe to force, as in generation: the input is our own validated profile
-      // plus listings we fetched, so there is no unreadable case to fabricate
-      // around.
-      toolChoice: "required",
-    });
-
-    const rawArguments =
-      completion?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-
-    if (typeof rawArguments !== "string") {
-      console.error("[agent/matcher] no tool call in completion");
-      return unscored();
-    }
-
-    let parsedArguments: unknown;
-    try {
-      parsedArguments = JSON.parse(rawArguments);
-    } catch {
-      // The truncation case: output hit the token cap mid-JSON.
-      console.error("[agent/matcher] tool arguments were not valid JSON");
-      return unscored();
-    }
-
-    const validated = matchesSchema.safeParse(parsedArguments);
-    if (!validated.success || validated.data.matches === undefined) {
-      console.error("[agent/matcher] schema rejected the scoring response");
-      return unscored();
-    }
-
-    const results = mapScoredMatches(validated.data.matches, jobs.length);
-
-    const scored = results.filter((match) => match !== null).length;
-    console.log("[agent/matcher] scored", scored, "of", jobs.length, "listings");
-    return results;
+    aiClient = await createAiClient();
   } catch (error) {
     console.error("[agent/matcher] scoring failed", error);
-    return unscored();
+    return results;
   }
+
+  const content = `${PROMPT}\n\nCANDIDATE PROFILE:\n${buildProfileInput(
+    profile,
+  )}\n\nJOBS:\n${buildJobsInput(jobs)}`;
+  const tool = buildMatchingTool(jobs.length);
+
+  let attempts = 0;
+  while (attempts < MAX_SCORING_ATTEMPTS) {
+    attempts += 1;
+    const startedAt = Date.now();
+    const reply = await requestScores(aiClient, content, tool);
+
+    if (reply !== null) {
+      const placement = mapScoredMatches(reply.entries, jobs.length);
+      // An earlier attempt's score wins; a retry only fills what is still empty.
+      results = results.map((match, index) => match ?? placement.results[index]);
+
+      const placed = placement.results.filter((match) => match !== null).length;
+      // Counts and shapes only, never values — see `describeEntry`. Enough to
+      // tell an empty reply from a malformed one without reproducing the call.
+      const details = {
+        attempt: attempts,
+        model: reply.model,
+        completionTokens: reply.completionTokens,
+        toolCalls: reply.toolCalls,
+        entries: reply.entries.length,
+        placed,
+        dropped: placement.dropped,
+        firstDrop:
+          placement.firstDrop === null
+            ? null
+            : {
+                reason: placement.firstDrop.reason,
+                ...describeEntry(reply.raw[placement.firstDrop.position]),
+              },
+      };
+      if (placed < jobs.length) {
+        console.error("[agent/matcher] reply left jobs unscored", details);
+      } else if (placement.firstDrop !== null) {
+        // Every job placed, so whatever dropped was surplus — commonly a stray
+        // eleventh entry at index 10. Harmless, but it costs output tokens.
+        console.log("[agent/matcher] reply had surplus entries", details);
+      }
+    }
+
+    const complete = results.every((match) => match !== null);
+    if (complete || Date.now() - startedAt > RETRY_WINDOW_MS) {
+      break;
+    }
+  }
+
+  const scored = results.filter((match) => match !== null).length;
+  console.log(
+    "[agent/matcher] scored",
+    scored,
+    "of",
+    jobs.length,
+    "listings in",
+    attempts,
+    attempts === 1 ? "call" : "calls",
+  );
+  return results;
 }
