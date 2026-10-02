@@ -95,8 +95,9 @@ to undo by accident:
   seven Minors fixed and re-verified live; one Minor accepted (Next clicked
   within 300 ms of typing lands on page 2 of the new filter).
 - Committed with this memory file; nothing deployed.
-- Dev DB: 30 real jobs from 3 searches, no seed rows. The 10 unscored ones are
-  from the original pre-fix failure (run `e706a8d4…`); safe to delete.
+- Dev DB: 20 real jobs from 2 searches, all scored, no seed rows. The pre-fix
+  failure's 10 unscored jobs and their run were deleted on 2026-10-02; its
+  `ai_usage` row was kept, since that call was really billed.
 - **Matcher fix is merged** on top of Feature 11. Lint, tsc and build pass on
   the rebased code; a 13-case offline harness (empty, partial, throwing, slow and
   malformed replies) never throws, never exceeds two calls, and logs no reason
