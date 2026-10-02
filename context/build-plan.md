@@ -241,6 +241,14 @@ Wire filter tabs, sort dropdown, text search, and pagination to real InsForge DB
 - Text search — filter by company name or job title (case insensitive)
 - Pagination — 20 jobs per page, total count shown
 
+**Not in this feature: deduplication of saved jobs.** Earlier notes assigned it to
+Feature 11; it moved to its own change. Dedup cannot live in the list query: `distinct
+on` is not expressible through PostgREST, and a pre-dedup `count` beside a post-dedup
+`range` would make the footer lie and page boundaries drift. It is a write-path change to
+`POST /api/agent/find`. Note when designing it that Adzuna's `redirect_url` is a
+per-request tracking link, so the apply URL is **not** a natural key — title + company at
+minimum.
+
 ---
 
 ## Phase 4 — Job Details Page

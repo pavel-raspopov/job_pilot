@@ -6,9 +6,9 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ## Current Status
 
-**Phase:** Phase 3 — Find Jobs Page (in progress)
-**Last completed:** 10 Adzuna Job Discovery
-**Next:** 11 Filter + Sort + Pagination
+**Phase:** Phase 4 — Job Details Page (next)
+**Last completed:** 11 Filter + Sort + Pagination
+**Next:** job deduplication (its own change, moved out of 11 — see `build-plan.md` Feature 11), then 12 Job Details Page — Full UI
 
 ---
 
@@ -32,7 +32,7 @@ Update this file after every completed feature. Any AI agent reading this should
 
 - [x] 09 Find Jobs Page — Full UI
 - [x] 10 Adzuna Job Discovery
-- [ ] 11 Filter + Sort + Pagination
+- [x] 11 Filter + Sort + Pagination
 
 ### Phase 4 — Job Details Page
 
@@ -49,6 +49,64 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Feature 11 Filter + Sort + Pagination (2026-09-24).** `/find-jobs` no longer
+  fetches every saved job and slices it in the browser. The page reads `q` /
+  `match` / `sort` / `page` from the URL and runs one filtered, ordered, counted,
+  ranged query for twenty rows; `JobsTable` renders them and writes the URL. No
+  migration, no dependency, no new PostHog event. OpenSpec change
+  `add-server-side-job-list`.
+
+  - **The URL is the list's state, and `lib/job-list-params.ts` owns the
+    contract** — parse on the server, write hrefs on the client. Two callers is
+    what clears `architecture.md`'s single-caller rule. A filtered view is now
+    linkable and survives a reload; `SearchControls`' `router.refresh()` keeps it.
+  - **Every sort ends with `id`.** All rows of one search share an identical
+    `found_at`, so ties are the normal case, and offset paging over a partial
+    order can repeat or skip a row with nothing looking wrong. Verified: 46 of 46
+    unique across three pages for each sort, order hash-equal to a SQL oracle.
+  - **Only one `.or()` per query.** Two `or=` parameters fail with PGRST100
+    through the InsForge records endpoint (PostgREST alone would AND them); the
+    text and band groups nest under one `and(...)`.
+  - **A page past the end is refused, not returned empty.** PostgREST answers it
+    with 416 / PGRST103 and `postgrest-js` then reports no count, so the page asks
+    page 1 for the total and fetches the last page. An offset exactly on the total
+    is *not* refused (200, empty, counted), so the ordinary clamp stays too. The
+    design had assumed a count would come back; `?page=99` rendered "Could not
+    load your jobs" until this was measured.
+  - **Unscored jobs stay in the Low band** so the bands partition the list — the
+    shipped behaviour kept, the spec wording amended. `*` in the filter is a
+    wildcard (PostgREST rewrites it); every other character is literal, proven for
+    each metacharacter on its own.
+  - **"No jobs yet" vs "no matches" is decided by the server**: free in every
+    case but one, where a single `limit(1)` probe runs. A failed session read is
+    now a load failure, not an empty account.
+  - **The client keeps a draft and an `intended` view in state, not refs** —
+    `eslint-config-next`'s `react-hooks/refs` forbids reading refs during render,
+    which the resync needs. Filter text is compared via the parser's own
+    `normalizeQuery`; comparing raw text deleted a trailing space mid-phrase.
+  - **The current page had never been highlighted.** `bg-accent-muted` was
+    appended over `bg-surface`, and stylesheet order, not class order, decides.
+    Fixed with a separate class; recorded as the Variant Class Standard in
+    `ui-registry.md`. Pagination is now windowed per the design asset.
+  - **Deduplication moved to its own change** — it is a write-path problem; a
+    pre-dedup count beside a post-dedup range would make the footer lie.
+  - **Adversarial review: 0 Critical, 2 Important, 9 Minor**, run as an
+    independent read-only pass plus a live attack. Both Important fixed:
+    `aria-busy` announces nothing, so a `role="status"` region now speaks
+    "Updating results…" (outside the busy section, or it would be held back
+    too); and a navbar link clicked within 300 ms of typing was swallowed by the
+    debounce's late `replace` (reproduced 3/3) — waiting text is now sent on
+    blur, and Back/Forward cancels it. Seven Minors fixed too: page numbers past
+    10,000 clamp instead of resetting, the filter cut counts code points and
+    trims again so `normalizeQuery` is idempotent (fuzzed, 100k strings), the
+    current page's button is a no-op, the date cell no longer stacks two text
+    colours, three comments corrected, one spec scenario qualified. Accepted:
+    clicking Next within 300 ms of typing lands on page 2 of the new filter —
+    the user asked for the next page.
+  - **Found in verification, out of scope:** the one real search scored 0 of 10
+    listings (`[agent/matcher] scored 0 of 10`, no error logged — entries dropped
+    silently in `mapScoredMatches`). Spun out as its own task.
 
 - **Feature 10 Adzuna Job Discovery (2026-09-02).** `/find-jobs` now reads real
   data. `POST /api/agent/find` queries Adzuna, scores the results against the

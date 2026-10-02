@@ -97,7 +97,7 @@
 │   │   └── CompletionIndicator.tsx
 │   ├── find-jobs/
 │   │   ├── SearchControls.tsx
-│   │   ├── JobsTable.tsx              → CONTAINER: owns list view state (see note below)
+│   │   ├── JobsTable.tsx              → CONTAINER: the list URL's only writer (see note below)
 │   │   ├── JobFilters.tsx             → presentational; props + callbacks only
 │   │   └── JobsPagination.tsx         → presentational; props + callbacks only
 │   └── job-details/
@@ -118,6 +118,7 @@
 │   ├── profile-completion.ts              → Profile completeness + enum guards
 │   ├── parse-profile.ts                   → Untrusted `profiles` row → Profile
 │   ├── parse-job.ts                       → Untrusted `jobs` row → Job
+│   ├── job-list-params.ts                 → Find Jobs list URL contract: parse + write (see note below)
 │   └── utils.ts                           → Shared utility functions
 └── types/
     └── index.ts                           → Global TypeScript types
@@ -147,16 +148,28 @@ single caller was out of scope. Feature 10 logs with the `[api/agent/find]` and
 `[agent/*]` console prefixes instead. Feature 13 genuinely needs the table and
 should build the helper.
 
-**`JobsTable.tsx` is the Find Jobs list container, not a bare table.** It owns
-the list's view state — text query, match filter, sort, page — derives the
-filtered/sorted/sliced rows, and composes `JobFilters` above the table card and
-`JobsPagination` inside its footer; both of those are presentational. The four
-files above are therefore not four peers. The state lives in `JobsTable` rather
-than a fifth `JobsList.tsx` wrapper because all three components read one
-derived list and this tree is the source of truth for the directory's contents.
-Feature 11 moves the querying server-side: the filter rules are plain functions
-over an array, so what changes is where the array comes from and where the three
-values are held, not the component split.
+**`JobsTable.tsx` is the Find Jobs list container, not a bare table.** Since
+Feature 11 the list's view — text query, match filter, sort, page — lives in the
+URL, and `app/(app)/find-jobs/page.tsx` runs one filtered, ordered, counted,
+ranged query for twenty rows. `JobsTable` receives that page of rows plus the
+total and range as facts, derives none of them, and is the URL's only writer:
+every control changes the list by navigating. It composes `JobFilters` above the
+table card and `JobsPagination` inside its footer; both stay presentational. The
+four files above are therefore not four peers. The component split survived the
+move unchanged, as Feature 09 intended — what changed is where the rows come
+from and where the four values are held.
+
+**`lib/job-list-params.ts` is the list's URL contract, and it has two callers.**
+`page.tsx` parses `searchParams` with it (`parseJobListParams`, zod with a
+fallback per field — a hand-edited URL never throws) and `JobsTable` writes
+hrefs with it (`jobListHref`, which emits only non-default values so
+`/find-jobs` is the canonical zero state), plus `normalizeQuery` so the client
+predicts exactly what the server will parse. That is what clears the
+no-single-caller rule that left `agent/types.ts` and `ResumePreview.tsx`
+unbuilt: two consumers of one contract, which split across two files would put
+the parameter names and defaults in two places free to drift. The query itself
+is **not** in it — one caller, so it stays a local `loadJobsPage()` in
+`page.tsx`.
 
 **`app/api/resume/generate/fonts/` holds two Inter TTFs** (SIL Open Font
 License), registered with `Font.register` at render time. They are not

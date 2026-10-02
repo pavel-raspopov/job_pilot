@@ -1,15 +1,24 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition, type FocusEvent } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Building2, CircleAlert, Search, SearchX } from "lucide-react";
 import { JobFilters } from "@/components/find-jobs/JobFilters";
 import { JobsPagination } from "@/components/find-jobs/JobsPagination";
+import { jobListHref, normalizeQuery } from "@/lib/job-list-params";
 import { formatRelativeDate, HIGH_MATCH_THRESHOLD } from "@/lib/utils";
-import type { Job, JobSort, MatchFilter } from "@/types";
+import type { Job, JobListParams, JobSort, MatchFilter } from "@/types";
 
-/** Feature 11 raises this to 20, alongside server-side querying. */
-const PAGE_SIZE = 6;
+/**
+ * How long typing must pause before the filter text reaches the URL. Chosen,
+ * not measured — the repo had no precedent. Revisit if typing feels laggy or
+ * the network panel shows a request per keystroke.
+ */
+const QUERY_DEBOUNCE_MS = 300;
+
+function sameView(a: JobListParams, b: JobListParams): boolean {
+  return a.q === b.q && a.match === b.match && a.sort === b.sort && a.page === b.page;
+}
 
 /** Lower bound of the warning colour band. Below it, a score reads as muted. */
 const MID_MATCH_THRESHOLD = 50;
@@ -19,57 +28,12 @@ const TH_CLASS =
 // `text-left` is explicit because the first cell of each row is a `<th>`, which
 // the UA stylesheet centres. Today a flex child masks that; plain text in the
 // cell would silently centre while every other column stayed left.
-const TD_CLASS = "px-6 py-4 text-left text-sm text-text-primary";
-
-/**
- * A missing score sorts and filters as 0 — a job nothing has scored is not a
- * match. The column renders it as an em dash rather than "0%", which would read
- * as a measured result.
- */
-function scoreOf(job: Job): number {
-  return job.match_score ?? 0;
-}
-
-/** Case-insensitive substring match on either company or role. */
-function matchesQuery(job: Job, needle: string): boolean {
-  if (needle === "") return true;
-  const company = job.company?.toLowerCase() ?? "";
-  const title = job.title?.toLowerCase() ?? "";
-  return company.includes(needle) || title.includes(needle);
-}
-
-function matchesBand(job: Job, filter: MatchFilter): boolean {
-  if (filter === "all") return true;
-  const score = scoreOf(job);
-  return filter === "high"
-    ? score >= HIGH_MATCH_THRESHOLD
-    : score < HIGH_MATCH_THRESHOLD;
-}
-
-/**
- * Filter and order the list.
- *
- * Kept as plain functions over an array so Feature 11 can move the same rules
- * into a `jobs` query without reshaping the components around them.
- */
-function selectJobs(
-  jobs: Job[],
-  query: string,
-  matchFilter: MatchFilter,
-  sort: JobSort,
-): Job[] {
-  const needle = query.trim().toLowerCase();
-  const filtered = jobs.filter(
-    (job) => matchesQuery(job, needle) && matchesBand(job, matchFilter),
-  );
-
-  return [...filtered].sort((a, b) => {
-    if (sort === "score") return scoreOf(b) - scoreOf(a);
-    const aFound = new Date(a.found_at).getTime();
-    const bFound = new Date(b.found_at).getTime();
-    return sort === "newest" ? bFound - aFound : aFound - bFound;
-  });
-}
+const TD_BASE_CLASS = "px-6 py-4 text-left text-sm";
+const TD_CLASS = `${TD_BASE_CLASS} text-text-primary`;
+// Its own string rather than `${TD_CLASS} text-text-secondary`: two text
+// colours on one element resolve by stylesheet order, not class order (see the
+// Variant Class Standard in `context/ui-registry.md`).
+const TD_MUTED_CLASS = `${TD_BASE_CLASS} text-text-secondary`;
 
 /**
  * Fill colour by score band.
@@ -140,9 +104,13 @@ function SourceBadge({ source }: { source: Job["source"] }) {
 /**
  * Why the list is empty. The remedies differ, so the copy has to.
  *
- * `no-matches` needs no "are filters active?" test: with an empty query and
- * `matchFilter` at "all", `selectJobs` keeps every row, so reaching this branch
- * with `jobs` non-empty *proves* a filter narrowed it away.
+ * The cause is decided by `page.tsx`, which is the only place that can: this
+ * component holds one page of rows, never the account's whole list. The server
+ * answers "does this user have saved jobs at all?" as `hasAnyJobs` — free in
+ * every case but one, where it costs a single probe query — and `no-matches` is
+ * reached only when that is true and nothing matched. A user with no saved jobs
+ * who types in the filter box therefore gets "run a search", not a Clear button
+ * that would produce nothing.
  */
 type EmptyVariant = "load-failed" | "no-jobs" | "no-matches";
 
@@ -199,7 +167,19 @@ function EmptyState({
 }
 
 type Props = {
+  /** One page of rows, already filtered and ordered by the database. */
   jobs: Job[];
+  /** The view those rows describe, with `page` clamped to the last page. */
+  params: JobListParams;
+  /** Jobs matching the current filters, across every page. */
+  totalCount: number;
+  totalPages: number;
+  /** 1-based index of the first visible row; 0 when there are none. */
+  rangeStart: number;
+  /** 1-based index of the last visible row; 0 when there are none. */
+  rangeEnd: number;
+  /** Whether the user has any saved jobs at all, whatever the filters. */
+  hasAnyJobs: boolean;
   /**
    * The `jobs` select failed. Empty for a reason no search or filter change
    * fixes, so it must not be reported as "you have no jobs yet".
@@ -210,72 +190,214 @@ type Props = {
 /**
  * The job list: filter bar, table, and pagination.
  *
- * This component owns the list's view state. `JobFilters` and `JobsPagination`
- * are presentational, and all three read one derived list, so exactly one owner
- * is possible. It lives here rather than in a fifth wrapper component because
+ * The rows, the total and the range arrive as facts from `page.tsx`, which
+ * runs the query; this component derives none of them. What it owns is the
+ * URL: it is the only writer of `q` / `match` / `sort` / `page`, and every
+ * control changes the list by navigating, never by holding a copy of the
+ * view. It lives here rather than in a fifth wrapper component because
  * `context/architecture.md` fixes this directory at four files.
+ *
+ * Typing uses `replace` — one history entry per keystroke burst would make
+ * Back useless — while the band, the sort, the page and Clear use `push`,
+ * because each is one deliberate act that Back should undo.
  *
  * Rows show a hover state but are deliberately not links: `/find-jobs/[id]` is
  * Feature 12, and a control that leads to a missing page is worse than none.
  */
-export function JobsTable({ jobs, loadFailed }: Props) {
+export function JobsTable({
+  jobs,
+  params,
+  totalCount,
+  totalPages,
+  rangeStart,
+  rangeEnd,
+  hasAnyJobs,
+  loadFailed,
+}: Props) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [matchFilter, setMatchFilter] = useState<MatchFilter>("all");
-  const [sort, setSort] = useState<JobSort>("score");
-  const [page, setPage] = useState(1);
+  const pathname = usePathname();
+  const [isPending, startTransition] = useTransition();
 
-  const visible = selectJobs(jobs, query, matchFilter, sort);
-  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-  // Clamped rather than trusted: every control that narrows the list resets the
-  // page below, but a clamp means no combination can render a blank page.
-  const currentPage = Math.min(page, totalPages);
-  const rangeStart = (currentPage - 1) * PAGE_SIZE;
-  const rows = visible.slice(rangeStart, rangeStart + PAGE_SIZE);
+  // The text box shows a local draft, so typing never waits on a round trip.
+  const [queryDraft, setQueryDraft] = useState(params.q);
+  // The view this component last asked for. Props trail it while a navigation
+  // is in flight, so every handler builds on this rather than on props: a band
+  // change made inside the debounce window keeps the newest text, and a second
+  // change made before the first lands keeps the first. State rather than a
+  // ref because the resync below reads it during render.
+  const [intended, setIntended] = useState(params);
+  // Typed text is waiting on the debounce to reach the URL.
+  const [queryWaiting, setQueryWaiting] = useState(false);
+  // The armed debounce and the href it will send, so a blur can send it early.
+  const debounce = useRef<{ timer: ReturnType<typeof setTimeout>; href: string } | null>(
+    null,
+  );
+
+  // Back, Forward, or the server clamping a page past the end moved the URL
+  // somewhere this component did not send it: adopt it. Only when nothing of
+  // ours is in flight, though — after our own navigation lands the props can
+  // trail text typed since, and adopting them then would delete it. React's
+  // "adjust state when a prop changes" pattern, not an effect.
+  if (!queryWaiting && !isPending && !sameView(params, intended)) {
+    setIntended(params);
+    if (params.q !== intended.q) setQueryDraft(params.q);
+  }
+
+  useEffect(() => {
+    // Back or Forward inside the debounce window abandons the typed text. Left
+    // armed, the timer would `replace` the history entry the user just moved to
+    // with the view they moved away from.
+    function abandonPendingQuery() {
+      if (debounce.current === null) return;
+      clearTimeout(debounce.current.timer);
+      debounce.current = null;
+      setQueryWaiting(false);
+    }
+
+    window.addEventListener("popstate", abandonPendingQuery);
+    return () => {
+      window.removeEventListener("popstate", abandonPendingQuery);
+      if (debounce.current !== null) clearTimeout(debounce.current.timer);
+    };
+  }, []);
 
   // Precedence matters: a load failure must not be reported as an empty account,
   // and an account with no jobs must not be told to clear filters it never set.
   const emptyVariant: EmptyVariant = loadFailed
     ? "load-failed"
-    : jobs.length === 0
-      ? "no-jobs"
-      : "no-matches";
+    : hasAnyJobs
+      ? "no-matches"
+      : "no-jobs";
 
-  // Narrowing the list returns to page 1. Without this, a user on page 4 who
-  // types a filter would be looking at a page that no longer exists.
+  function go(next: JobListParams) {
+    setIntended(next);
+    startTransition(() => {
+      router.push(jobListHref(pathname, next), { scroll: false });
+    });
+  }
+
+  function sendQuery(href: string) {
+    startTransition(() => {
+      // Cleared inside the transition so it commits together with the new
+      // rows. Cleared outside it, there could be a render where neither guard
+      // on the resync holds while the props still trail the text.
+      setQueryWaiting(false);
+      router.replace(href, { scroll: false });
+    });
+  }
+
+  // Every control but typing carries the newest text itself, so a debounce
+  // still waiting to send it would only re-send it.
+  function cancelPendingQuery() {
+    if (debounce.current !== null) {
+      clearTimeout(debounce.current.timer);
+      debounce.current = null;
+    }
+    setQueryWaiting(false);
+  }
+
+  // Typed text still waiting on the debounce goes out the moment the filter
+  // box loses focus. Otherwise a navbar link clicked inside the window is lost:
+  // the link starts navigating, the timer then fires its `replace`, and Next
+  // abandons a pending navigation for a newer one, so the user stays here.
+  // Clicking a link moves focus on mousedown, so sent on blur ours is the older
+  // navigation and the link's wins.
+  function flushOnFilterBlur(event: FocusEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "search") return;
+
+    const pending = debounce.current;
+    if (pending === null) return;
+    clearTimeout(pending.timer);
+    debounce.current = null;
+    sendQuery(pending.href);
+  }
+
+  // Changing the filter, the band or the sort returns to page 1. Without that,
+  // a user on page 4 who narrows the list would land on a page that no longer
+  // exists — the server would clamp it, but to the last page, not the first.
   function changeQuery(value: string) {
-    setQuery(value);
-    setPage(1);
+    setQueryDraft(value);
+
+    const q = normalizeQuery(value);
+    // Whitespace at the ends, or typing past the limit, changes nothing the
+    // URL would hold. Any debounce already waiting still carries the text.
+    if (q === intended.q) return;
+
+    const next = { ...intended, q, page: 1 };
+    setIntended(next);
+    setQueryWaiting(true);
+
+    if (debounce.current !== null) clearTimeout(debounce.current.timer);
+    const href = jobListHref(pathname, next);
+    debounce.current = {
+      href,
+      timer: setTimeout(() => {
+        debounce.current = null;
+        sendQuery(href);
+      }, QUERY_DEBOUNCE_MS),
+    };
   }
 
   function changeMatchFilter(value: MatchFilter) {
-    setMatchFilter(value);
-    setPage(1);
+    cancelPendingQuery();
+    go({ ...intended, match: value, page: 1 });
   }
 
   function changeSort(value: JobSort) {
-    setSort(value);
-    setPage(1);
+    cancelPendingQuery();
+    go({ ...intended, sort: value, page: 1 });
   }
 
+  function changePage(page: number) {
+    // The current page's own button. Navigating would re-run the same query
+    // and dim the table for nothing.
+    if (page === intended.page) return;
+    cancelPendingQuery();
+    go({ ...intended, page });
+  }
+
+  // Resets the text and the band, keeps the sort — the sort cannot be why the
+  // list is empty, and the user chose it.
   function clearFilters() {
-    setQuery("");
-    setMatchFilter("all");
-    setPage(1);
+    cancelPendingQuery();
+    setQueryDraft("");
+    go({ ...intended, q: "", match: "all", page: 1 });
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6" onBlur={flushOnFilterBlur}>
       <JobFilters
-        query={query}
+        query={queryDraft}
         onQueryChange={changeQuery}
-        matchFilter={matchFilter}
+        matchFilter={intended.match}
         onMatchFilterChange={changeMatchFilter}
-        sort={sort}
+        sort={intended.sort}
         onSortChange={changeSort}
       />
 
-      <section className="bg-surface border border-border rounded-2xl shadow-card">
+      {/*
+        While a navigation is in flight the current rows stay on screen, dimmed,
+        rather than being swapped for a skeleton: they are still correct data
+        until the new rows land. `opacity-60` is this project's existing "not
+        actionable right now" signal (`disabled:opacity-60` on every button).
+
+        `aria-busy` alone announces nothing: it asks assistive technology to
+        hold back changes inside the section until it clears. The updating
+        state is spoken by the polite region below instead, which sits OUTSIDE
+        the busy section — inside, it would be held back too — and stays mounted
+        so a change to its text is announced. `sr-only` takes it out of flow,
+        so it adds no gap to the column.
+      */}
+      <p role="status" className="sr-only">
+        {isPending ? "Updating results…" : ""}
+      </p>
+      <section
+        aria-busy={isPending}
+        className={`bg-surface border border-border rounded-2xl shadow-card transition-opacity ${
+          isPending ? "opacity-60" : ""
+        }`}
+      >
         <h2 className="sr-only">Jobs found</h2>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] border-collapse">
@@ -306,7 +428,7 @@ export function JobsTable({ jobs, loadFailed }: Props) {
               </tr>
             </thead>
             <tbody>
-              {visible.length === 0 ? (
+              {jobs.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-16 text-center">
                     <EmptyState
@@ -317,7 +439,7 @@ export function JobsTable({ jobs, loadFailed }: Props) {
                   </td>
                 </tr>
               ) : (
-                rows.map((job) => (
+                jobs.map((job) => (
                   <tr
                     key={job.id}
                     className="border-b border-border transition-colors last:border-b-0 hover:bg-surface-secondary"
@@ -341,7 +463,7 @@ export function JobsTable({ jobs, loadFailed }: Props) {
                     <td className={TD_CLASS}>
                       <SourceBadge source={job.source} />
                     </td>
-                    <td className={`${TD_CLASS} text-text-secondary`}>
+                    <td className={TD_MUTED_CLASS}>
                       {formatRelativeDate(job.found_at)}
                     </td>
                   </tr>
@@ -351,14 +473,15 @@ export function JobsTable({ jobs, loadFailed }: Props) {
           </table>
         </div>
 
-        {visible.length > 0 ? (
+        {jobs.length > 0 ? (
           <JobsPagination
-            page={currentPage}
+            page={params.page}
             totalPages={totalPages}
-            totalResults={visible.length}
-            rangeStart={rangeStart + 1}
-            rangeEnd={rangeStart + rows.length}
-            onPageChange={setPage}
+            totalResults={totalCount}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={changePage}
+            disabled={isPending}
           />
         ) : null}
       </section>
@@ -367,10 +490,11 @@ export function JobsTable({ jobs, loadFailed }: Props) {
         Provider attribution, required by `context/project-overview.md` ("Jobs by
         Adzuna credit displayed on job listings") and a standard condition of the
         Adzuna API terms. Shown whenever this user has saved listings at all —
-        not gated on the current filter — so narrowing the list cannot drop the
-        credit off the page.
+        not gated on the current filter or page — so narrowing the list cannot
+        drop the credit off the page. `jobs` is one page and may be empty under a
+        filter, so the account-level `hasAnyJobs` decides, not its length.
       */}
-      {jobs.length > 0 ? (
+      {hasAnyJobs ? (
         <p className="text-xs text-text-muted">Jobs by Adzuna</p>
       ) : null}
     </div>

@@ -93,23 +93,26 @@ if (!user) redirect("/login");
 
 ### DB Queries
 
+Queries go through `insforge.database.from(...)` — not `insforge.from(...)`, which
+does not exist on the client. Every shipped route and page uses the `database` form.
+
 ```typescript
 // Read
-const { data, error } = await insforge
+const { data, error } = await insforge.database
   .from("jobs")
   .select("*")
   .eq("user_id", user.id)
   .order("found_at", { ascending: false });
 
-// Insert
-const { data, error } = await insforge
+// Insert — the SDK takes an ARRAY, even for one row
+const { data, error } = await insforge.database
   .from("jobs")
-  .insert({ user_id: user.id, title, company, match_score })
+  .insert([{ user_id: user.id, title, company, match_score }])
   .select()
   .single();
 
 // Update
-const { error } = await insforge
+const { error } = await insforge.database
   .from("jobs")
   .update({ company_research: dossier })
   .eq("id", jobId)
@@ -121,6 +124,55 @@ const { error } = await insforge
 - Always scope queries to `user_id` — never query without user filter
 - Always handle the `error` return — never assume success
 - Use `.single()` when expecting exactly one row
+
+#### Filtered, counted, paginated reads
+
+The pattern `app/(app)/find-jobs/page.tsx` uses (Feature 11). Every behaviour below
+was verified against the live backend on 2026-09-24, not inferred from the library.
+
+```typescript
+const from = (page - 1) * PAGE_SIZE;
+
+let query = insforge.database
+  .from("jobs")
+  .select("*", { count: "exact" })   // total arrives with the rows
+  .eq("user_id", userId);
+
+// ONE .or() for everything that needs OR — nested groups under an and(...)
+query = query.or(
+  `and(or(company.ilike."%${p}%",title.ilike."%${p}%"),or(match_score.lt.70,match_score.is.null))`,
+);
+
+const { data, error, count } = await query
+  .order("match_score", { ascending: false, nullsFirst: false })
+  .order("found_at", { ascending: false })
+  .order("id", { ascending: false })  // unique last key: paging needs a TOTAL order
+  .range(from, from + PAGE_SIZE - 1);
+```
+
+- **`count: "exact"`** sends `Prefer: count=exact`; the number is parsed from the
+  `content-range` **response header**, not the body. It survives the InsForge proxy.
+- **`postgrest-js` reads `count` only from a successful response.** An offset past the
+  last row is answered with **416, `error.code === "PGRST103"`** ("Requested range not
+  satisfiable") and `count: null` — so the total is unknown exactly when you need it to
+  clamp. Offset 0 is always satisfiable, even over zero rows; ask page 1 for the total.
+  An offset landing *exactly* on the total is **not** a 416: it returns 200, empty, with
+  the count.
+- **Never call `.or()` twice.** PostgREST itself would AND two `or=` parameters, but the
+  InsForge records endpoint does not forward a repeated key intact, and the request fails
+  with PGRST100 ("failed to parse filter"). Nest the groups inside one `.or()` instead.
+- **`.or()` is passed through verbatim** — sanitise it yourself. Two escape layers, in
+  this order: SQL `LIKE` (`\` before each of `\ % _`), then PostgREST's double-quoted
+  value syntax (`\` before each of `" \`, which doubles the first layer's backslashes).
+  Quoting is what protects `, . : ( )` in user text. See `containsPattern()` in
+  `page.tsx`.
+- **`*` cannot be escaped in a like/ilike pattern** — PostgREST rewrites every `*` to `%`
+  before Postgres sees it, so it acts as a wildcard.
+- **`nullsFirst: false` is required for a descending sort that should put nulls last**:
+  Postgres defaults `DESC` to `NULLS FIRST`. Likewise `.lt()` drops nulls; add
+  `col.is.null` to the group if they belong in that band.
+- **Repeated `.order()` calls accumulate** into one comma-joined `order=` parameter —
+  one multi-key ordering, not three overrides.
 
 ---
 

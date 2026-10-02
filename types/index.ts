@@ -188,3 +188,18 @@ export type MatchFilter = "all" | "high" | "low";
 
 /** Sort order for the Find Jobs list. */
 export type JobSort = "score" | "newest" | "oldest";
+
+/**
+ * The Find Jobs list's view state.
+ *
+ * Held in the URL rather than in component state, so a filtered view can be
+ * linked, bookmarked and restored by reloading. `lib/job-list-params.ts` owns
+ * both directions of that contract — parsing it out of `searchParams` and
+ * writing it back into an href.
+ */
+export type JobListParams = {
+  q: string;
+  match: MatchFilter;
+  sort: JobSort;
+  page: number;
+};
