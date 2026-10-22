@@ -7,7 +7,7 @@ Update this file after every completed feature. Any AI agent reading this should
 ## Current Status
 
 **Phase:** Phase 4 — Job Details Page (next)
-**Last completed:** job deduplication (change `add-job-deduplication`, after 11)
+**Last completed:** Adzuna 503 retry (change `retry-adzuna-unavailable`, after 11)
 **Next:** 12 Job Details Page — Full UI
 
 ---
@@ -49,6 +49,27 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Adzuna 503 retry (2026-10-22).** `searchJobs()` retries an Adzuna 503 up to twice,
+  with jittered waits, inside the existing 10 s budget, so a momentary refusal no
+  longer fails the user's search. The route is unchanged: a 503 that persists still
+  fails the run and charges no slot. OpenSpec change `retry-adzuna-unavailable`.
+
+  - **The 503 is burst load-shedding, not a concurrency limit.** This corrects the
+    deduplication entry below. Eight concurrent pairs and triples returned 200. Four
+    503s and a 429 came only during a burst of about 15 requests in 30 s, and the same
+    query a minute later returned 200. So a concurrent pair proves nothing about the
+    retry.
+  - **Only 503 is retried.** A 429 is the shared per-minute quota, and retrying it
+    spends more. Other 5xx, timeouts and network errors were never seen to recover.
+  - **Verified without a real 503 on demand:** an 8-case offline harness that stubs
+    `fetch`, plus a `NODE_OPTIONS=--import` preload that stubs Adzuna under `next dev`.
+    In the first-503 mode, the search succeeded with one retry and charged exactly one
+    `ai_usage` row. In the always-503 mode, the form showed the unavailable message
+    after 3 requests in 2.2 s: run `failed`, `jobs_found 0`, no `ai_usage` row, no jobs.
+  - **Review: 1 Minor, fixed.** The refused body's `cancel()` rejection was swallowed,
+    the only empty catch in the app. It is now logged, and harness case i (a rejecting
+    `cancel`) proves the retry still goes ahead.
 
 - **Job deduplication (2026-10-22).** A search no longer saves or re-scores a listing
   the user already has. Migration `005` adds `jobs.external_id`,
@@ -97,7 +118,8 @@ Update this file after every completed feature. Any AI agent reading this should
     even for two different queries. The key is shared by all users, so two people
     searching at the same moment means one sees "Job search is unavailable". That one
     failure is handled cleanly (run failed, no slot charged), but it is a real
-    production problem.
+    production problem. *(Fixed and re-diagnosed by `retry-adzuna-unavailable` above:
+    the 503 is burst load-shedding, not a concurrency limit.)*
 
 - **Fix: searches saved every listing unscored (2026-09-24).** One live search
   logged `scored 0 of 10` with no error line. The obvious suspect — entries with

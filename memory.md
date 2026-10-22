@@ -1,76 +1,64 @@
-# Memory — Job deduplication
+# Memory — Adzuna 503 retry
 
 Last updated: 2026-10-22
 
 ## What was built
 
-A search no longer saves or re-scores a listing the user already has. OpenSpec
-change `add-job-deduplication`: proposed, applied, reviewed and archived to
-`openspec/changes/archive/2026-10-22-add-job-deduplication/` on 2026-10-22. Its
-deltas added 1 requirement and modified 7 across `openspec/specs/job-discovery/`
-and `openspec/specs/find-jobs/`. The decision record is in
-`context/progress-tracker.md` under "Job deduplication".
+A momentary Adzuna 503 no longer fails a user's search. OpenSpec change
+`retry-adzuna-unavailable`: proposed, applied, reviewed and archived to
+`openspec/changes/archive/2026-10-22-retry-adzuna-unavailable/` on 2026-10-22. Its
+delta modified one `job-discovery` requirement ("Failures are reported without
+discarding usable results") with three new scenarios. The decision record is in
+`context/progress-tracker.md` under "Adzuna 503 retry".
 
-- **New:** `db/migrations/005_add_jobs_external_id.sql`. It is **applied to the
-  dev DB**: `jobs.external_id`, `UNIQUE (user_id, external_id)`, and a CHECK
-  requiring an id on search rows.
-- **Modified:** `agent/adzuna.ts` (reads Adzuna's `id`, dedupes by it, drops
-  listings with no id), `app/api/agent/find/route.ts` (lookup, then score the new
-  and unscored, conflict-ignore insert, guarded fill-in), `types/index.ts`
-  (`FindActionResult.newJobs`), `components/find-jobs/SearchControls.tsx`
-  ("Found 10 jobs, 3 new, 1 strong match." and the all-saved notice).
-- **Docs:** `architecture.md`, `library-docs.md` (new Deduplication section, and
-  the stale Adzuna mapping lines fixed), `build-plan.md`, `ui-registry.md`,
-  `progress-tracker.md`.
+- **Modified:** `agent/adzuna.ts` only. `searchJobs()` loops the fetch and retries
+  on 503 alone. It makes at most 3 attempts, waiting 300–600 ms and then 600–1200 ms,
+  jittered. One `AbortSignal` and deadline cover all attempts, and it skips a retry
+  when under 2.5 s would remain. The refused body is cancelled, and a failed cancel
+  is logged. The internal error is now `adzuna http <status> after <n> attempt(s)`.
+- **Unchanged on purpose:** the route, the rate limiter and the UI. A persistent
+  503 still fails the run with no slot charged.
+- **Docs:** `library-docs.md` (two Adzuna rules: retry 503, never 429) and
+  `progress-tracker.md` (new entry; the dedup entry's 503 note is re-diagnosed).
 
 ## Decisions made
 
-All recorded in the tracker and the archived design (D1–D10). The ones that would
-hurt to undo by accident:
-
-- **The key is Adzuna's `id`, not title + company and not `redirect_url`.**
-  Probed: it is stable across requests and over a month, and it is the redirect
-  URL's path. US, UK and AU ids share one global range.
-- **Never go back to a plain `insert([...])` for search results.** With the
-  constraint in place it is atomic, so one known row fails the whole batch. Use
-  `upsert(…, { onConflict: "user_id,external_id", ignoreDuplicates: true })`,
-  which was probed on InsForge although its docs omit it, and count only the
-  rows it returns.
-- **The unique constraint must stay non-partial.** `on_conflict` cannot target a
-  partial index.
-- **A saved job is never re-scored or changed. The one exception is a row with a
-  null score**, filled in by an update guarded by `match_score IS NULL`. That guard
-  is the only thing preventing an overwrite; don't drop it.
-- **`jobsFound` now means "listings found"; `newJobs` means "rows inserted".**
-  `agent_runs.jobs_found` means jobs that run newly saved.
+- **Retry 503 only. Never 429** (the shared per-minute quota). Never other 5xx,
+  timeouts or network errors (none was seen to recover).
+- **The 10 s budget is per search, not per attempt.** Don't give each attempt its
+  own `AbortSignal.timeout`.
 
 ## Problems solved
 
-- **Adzuna returns 503 to concurrent requests on one key**, even for two
-  different queries. A same-tick race test never reaches the DB. Stagger the
-  second request about 1.5 s so it enters while the first is still scoring.
-- **A literal timestamp in a PostHog HogQL query is read in the project's
-  timezone** and silently cuts events out. Use `now() - INTERVAL …`.
-- **A node script doing string replacement on the CRLF `context/` docs matched
-  only one-line patterns**, leaving mixed line endings. Use the Edit tool on
-  those files.
-- The auto-mode classifier refuses unplanned writes, and sometimes reads, through
-  `run-raw-sql`. Writes the developer approved in chat went through.
+- **Adzuna's 503 is burst load-shedding, not a concurrency limit.** This corrects
+  the last session's note. Eight concurrent pairs and triples returned 200. Four
+  503s (about 0.7 s each) and a 429 came only during a burst of about 15 requests
+  in 30 s. Neither status carries `Retry-After`. **A concurrent pair proves nothing
+  about the retry.**
+- **Stubbing a provider under `next dev` without touching app code**: a scratchpad
+  ESM preload that wraps `globalThis.fetch` for one host, loaded with
+  `NODE_OPTIONS=--import=file:///…`. Next patches fetch on top of it. Inline
+  `cmd /c set "…" && npm run dev` in `.claude/launch.json` did **not** reach the
+  server. A `.cmd` wrapper set as `runtimeExecutable` did, and the stub's log line
+  showed in every Next process. Revert `launch.json` afterwards.
+- **`AbortSignal.timeout` uses an unref'd timer.** In a harness whose stubbed fetch
+  never settles, Node exits mid-`await` ("unsettled top-level await"). Hold the
+  loop open with a `setInterval`. A server is unaffected.
+- **Harnesses: `jiti`** (in `node_modules`) with `alias: { "@": repo }` imports
+  `agent/*.ts` directly. `lib/env.ts` also needs dummy `NEXT_PUBLIC_INSFORGE_*`.
 
 ## Current state
 
-- Lint, `tsc`, build, `check:agents`, `check:sync`, and `openspec validate --all
-  --strict` (3 specs) all pass.
-- Verified live with row counts before and after each step:
-  - all-saved search: no `/chat/completion`, no rows changed;
-  - mixed search: 5 new, 5 scored, 5 events;
-  - staggered race: one search saved the rows, the other reported 0 new;
-  - fill-in of a blanked row: scored after a gateway 429 and a retry, with its
-    date and run unchanged;
-  - migration re-run is a no-op (rolled-back dry run).
-- Dev DB: 15 jobs, all scored, no seed rows. The backup table was dropped.
-  Avoca AI (`5889071313`) now scores 75 (it was 50; it was blanked for the
-  fill-in test).
+- Lint, `tsc`, build and `openspec validate --all --strict` (3 specs) all pass. The
+  offline harness passed 9 of 9 cases (scratchpad, wiped between sessions).
+- Verified live with row counts:
+  - concurrent pair: both 200, and no retry was needed;
+  - first-503 stub: one retry, then success, charging exactly 1 `ai_usage` row;
+  - always-503 stub, through the form: the unavailable alert after 3 requests in
+    2.2 s, the run failed with `jobs_found 0`, 0 `ai_usage` rows, 0 jobs.
+- Dev DB: 45 jobs (30 added by the test searches "Backend Developer / Chicago",
+  "Data Engineer / Chicago" and "DevOps Engineer / Austin"), runs 10 completed and
+  5 failed. `ai_usage` holds 4 `agent_find` rows from this session.
 - Committed with this memory file. Nothing deployed.
 
 ## Next session starts with
@@ -80,9 +68,9 @@ question below first, because Feature 12 renders those lists.
 
 ## Open questions
 
-- **Adzuna concurrency (503) is a production problem**: two users searching at the
-  same moment means one sees "Job search is unavailable". The likely fix is a
-  retry with jitter in `agent/adzuna.ts`. It's a task of its own, not started.
+- **Does the retry worsen a multi-user burst?** N refused searches can become 3N
+  requests in about 2 s and push toward the per-minute 429. It is bounded, but it
+  is unmeasured. Production `retrying 2 of 2` warns followed by 429s would show it.
 - **Searches only read Adzuna's first page**, so repeating a query mostly says
   "all already in your list". Fetching later pages is a product decision.
 - **`missing_skills` can contradict the profile**: one reply listed React and
@@ -90,6 +78,8 @@ question below first, because Feature 12 renders those lists.
 - Next fetches bare `/find-jobs` twice per navigation. Harmless; cause unknown.
 - The status region is verified in the DOM, not with NVDA/VoiceOver. The 300 ms
   debounce is unmeasured. `?page=1e20` falls back to page 1.
+- `context/library-docs.md`'s Adzuna example still shows `lib/adzuna.ts` throwing.
+  The shipped module is `agent/adzuna.ts` and never throws.
 - Carried over from Feature 10:
   - `location_searched` records "Remote" as typed;
   - an empty `match_reason` is stored as `''`;
@@ -103,7 +93,8 @@ question below first, because Feature 12 renders those lists.
 
 ## Testing notes
 
-- **Sign in first.** Signing in is the developer's job; never automate it.
+- **Sign in first.** Signing in is the developer's job; never automate it. The pane's
+  session survives dev-server restarts on port 3000.
 - **The pane runs "hidden"**: `setTimeout` throttles to about 1 s. Space scripted
   keystrokes with a `MessageChannel` wait.
 - **SQL oracle technique**: hash the expected order in SQL
@@ -111,18 +102,18 @@ question below first, because Feature 12 renders those lists.
   the rendered rows. `position(lower(needle) in lower(col))` is a wildcard-free
   contains check.
 - **Rolled-back dry runs**: in a `do $$ … $$` block, run the statement, collect
-  counts, and `raise exception` with them. The error carries the result and rolls
-  everything back, including DDL such as dropping a constraint to plant
-  duplicates.
+  counts, and `raise exception` with them. The error rolls everything back,
+  including DDL.
 - **Hash the rows you claim are untouched**, as `external_id|score|found_at|run_id`,
   before and after.
 - **Adzuna probes** from a scratchpad script (keys read from `.env.local`, never
-  printed) cost quota but no `ai_usage` slot. Benchmark scoring through the gateway
-  directly with the SDK's `createClient` to avoid spending searches.
+  printed) cost quota but no `ai_usage` slot. Keep a burst under about 15 a minute,
+  or Adzuna answers 503 and 429 and the probe measures itself. `agent_runs` has no
+  `created_at`; select runs by `job_title_searched`.
 - PostHog ingestion lags 10–30 s. Wait for the search's `job_search_started`
   before concluding a `job_found` is absent.
-- Node 26 runs `.ts` directly. For the `@/` alias, register a resolve hook
-  (`module.register`). There is no `tsx` in the repo.
+- A node script doing string replacement on the CRLF `context/` docs leaves mixed
+  line endings. Use the Edit tool, and count LF-only lines afterwards.
 - The scratchpad is wiped between sessions. Check that a harness's expected case
   count actually ran.
 - Carried over: reset viewport emulation before trusting a click; never print

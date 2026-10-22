@@ -340,6 +340,13 @@ const { data, error } = await insforge.database
 - `salary_is_predicted: "1"` means Adzuna estimated the salary — this is normal
 - Adzuna description is a snippet — the model scores from it, not a full description
 - Default country to `'us'` — support `gb`, `au`, `ca` as alternatives
+- **Retry a 503, and nothing else.** Under a burst on the shared key, Adzuna answers
+  503 in about 0.7 s, and the same query succeeds a moment later. `searchJobs()` makes
+  at most 3 requests, waiting 300–600 ms and then 600–1200 ms (jittered), all under the
+  one 10 s `AbortSignal`. It skips a retry when less than 2.5 s would remain.
+- **Never retry a 429.** It is the free tier's per-minute quota, shared by every user:
+  a retry within seconds cannot succeed and spends more of it. Adzuna sends no
+  `Retry-After` on either status
 
 ---
 

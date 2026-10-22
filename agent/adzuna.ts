@@ -52,6 +52,26 @@ const RESULTS_PER_PAGE = 10;
 const ADZUNA_TIMEOUT_MS = 10_000;
 
 /**
+ * Adzuna answers 503 under a burst of requests on the shared key, and the same
+ * query succeeds a moment later. One request plus two retries; the cap bounds
+ * how much shared quota a refused search can spend.
+ */
+const ADZUNA_MAX_ATTEMPTS = 3;
+
+/**
+ * Waits are 300–600 ms, then 600–1200 ms. The random spread stops two searches
+ * refused at the same instant from colliding again on the retry.
+ */
+const ADZUNA_RETRY_BASE_MS = 300;
+
+/**
+ * A retry is only started when this much of the timeout is left after the
+ * wait. An uncached search takes up to about 3 s; a request the abort would cut
+ * off only spends quota.
+ */
+const ADZUNA_MIN_ATTEMPT_MS = 2_500;
+
+/**
  * Below this a figure is an hourly or daily rate rather than an annual one, and
  * rendering it as "0k" would be a lie.
  */
@@ -112,6 +132,16 @@ const CURRENCY_SYMBOL: Record<AdzunaCountry, string> = {
  */
 function describeError(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** The wait after the given failed attempt (1-based), jittered within [x, 2x). */
+function retryDelay(attempt: number): number {
+  const floor = ADZUNA_RETRY_BASE_MS * 2 ** (attempt - 1);
+  return floor + Math.random() * floor;
 }
 
 /**
@@ -266,6 +296,9 @@ function normalise(
 /**
  * Searches Adzuna for IT listings matching a title and, where given, a place.
  *
+ * A 503 is retried up to twice within the one timeout; every other failure,
+ * and a 503 that outlasts the retries, is returned at once.
+ *
  * `error` is an internal string for the server log — never shown to a user. The
  * route maps every failure onto one user-facing message.
  */
@@ -293,17 +326,59 @@ export async function searchJobs(
       params.set("where", place);
     }
 
-    // `no-store` is explicit: Next 16 does not cache fetch by default, but a
-    // job search must never be served from a cache under a future default.
-    const response = await fetch(`${ADZUNA_BASE_URL}/${country}/search/1?${params}`, {
-      signal: AbortSignal.timeout(ADZUNA_TIMEOUT_MS),
-      cache: "no-store",
-    });
+    // One signal for every attempt: the timeout bounds the whole search, so
+    // retries cannot stretch it to three times as long.
+    const deadline = Date.now() + ADZUNA_TIMEOUT_MS;
+    const signal = AbortSignal.timeout(ADZUNA_TIMEOUT_MS);
+
+    let attempt = 1;
+    let response: Response;
+    for (;;) {
+      // `no-store` is explicit: Next 16 does not cache fetch by default, but a
+      // job search must never be served from a cache under a future default.
+      response = await fetch(`${ADZUNA_BASE_URL}/${country}/search/1?${params}`, {
+        signal,
+        cache: "no-store",
+      });
+
+      // Only a 503 clears within seconds. A 429 is the shared per-minute quota:
+      // a retry cannot succeed in time and would spend more of it.
+      if (response.status !== 503 || attempt >= ADZUNA_MAX_ATTEMPTS) {
+        break;
+      }
+      const wait = retryDelay(attempt);
+      if (deadline - Date.now() - wait < ADZUNA_MIN_ATTEMPT_MS) {
+        break;
+      }
+
+      console.warn(
+        "[agent/adzuna] provider returned 503 for",
+        country,
+        "- retrying",
+        attempt,
+        "of",
+        ADZUNA_MAX_ATTEMPTS - 1,
+      );
+      // An unread body keeps its socket tied up for the next attempt. A failed
+      // cancel only costs that socket's reuse — the retry opens its own — so it
+      // is logged, not returned as a search failure.
+      await response.body?.cancel().catch((error: unknown) => {
+        console.warn(
+          "[agent/adzuna] could not release a refused response:",
+          describeError(error),
+        );
+      });
+      await sleep(wait);
+      attempt += 1;
+    }
 
     if (!response.ok) {
       // Country and status only — never the key, never the full URL.
       console.error("[agent/adzuna] provider returned", response.status, "for", country);
-      return { success: false, error: `adzuna http ${response.status}` };
+      return {
+        success: false,
+        error: `adzuna http ${response.status} after ${attempt} attempt(s)`,
+      };
     }
 
     let payload: unknown;
