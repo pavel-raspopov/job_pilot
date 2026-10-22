@@ -41,7 +41,9 @@ export type ScoredMatch = {
  * flash-lite made a specific, visible error there; on this task it makes none.
  * Both scored 10/10 with correct `job_index`, and both invented zero skills
  * (every `matched_skills` entry was present in the profile's own list, checked
- * in SQL). Flash-lite discriminated slightly better: 7 distinct scores across
+ * in SQL). That did not hold on a wider sample: over 45 saved jobs, 10 had
+ * matched entries outside the profile — see `restrictToProfileSkills`, which
+ * now enforces it. Flash-lite discriminated slightly better: 7 distinct scores across
  * the ten listings against flash's 6, where flash produced a four-way tie at 70
  * and filled `matched_skills` to the 6 cap on all ten rows, while flash-lite
  * varied 5-6 matched and 1-5 missing per listing. Both ranked the plain
@@ -373,6 +375,72 @@ export function mapScoredMatches(
   return { results, dropped, firstDrop };
 }
 
+/**
+ * The form two skill names are compared in: case, spacing and punctuation
+ * dropped, letters and digits in any script kept, and `+` / `#` kept so that
+ * `C++`, `C#` and `C` stay three skills. "Node.js", "NodeJS" and "node js"
+ * share a key. Deliberately not semantic — "React.js" is not "React".
+ */
+function skillKey(skill: string): string {
+  return skill
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}+#]/gu, "");
+}
+
+/**
+ * Holds both skill lists to the profile, whatever the model said.
+ *
+ * The prompt already asks for matched skills FROM THE CANDIDATE'S OWN LIST and
+ * the model ignores it often enough to matter. Measured 2026-10-22 over 45
+ * saved jobs: 15 of 118 matched entries were not profile skills — job titles
+ * from `job_titles_seeking`, industries from `industries`, and Python and Java
+ * for a candidate with neither — while 2 of 130 missing entries were skills the
+ * profile lists. Prompt wording does not stop invention (see the resume
+ * extraction notes in `context/library-docs.md`); this check does.
+ *
+ * Only removes. A kept matched skill takes the profile's spelling, once; a
+ * missing skill the user has is dropped, so one named in both lists ends up
+ * matched only. An entry with an empty key is punctuation, not a skill, and is
+ * dropped from both — otherwise two empty keys would count as the same skill.
+ * The score and reason pass through: filtering corrects a list, not a verdict.
+ */
+export function restrictToProfileSkills(
+  match: ScoredMatch,
+  profileSkills: string[],
+): ScoredMatch {
+  const profileSpelling = new Map<string, string>();
+  for (const skill of profileSkills) {
+    const key = skillKey(skill);
+    if (key !== "" && !profileSpelling.has(key)) {
+      profileSpelling.set(key, skill);
+    }
+  }
+
+  const matchedKeys = new Set<string>();
+  const matchedSkills: string[] = [];
+  for (const skill of match.matchedSkills) {
+    const key = skillKey(skill);
+    const spelling = profileSpelling.get(key);
+    if (spelling !== undefined && !matchedKeys.has(key)) {
+      matchedKeys.add(key);
+      matchedSkills.push(spelling);
+    }
+  }
+
+  const missingKeys = new Set<string>();
+  const missingSkills: string[] = [];
+  for (const skill of match.missingSkills) {
+    const key = skillKey(skill);
+    if (key !== "" && !profileSpelling.has(key) && !missingKeys.has(key)) {
+      missingKeys.add(key);
+      missingSkills.push(skill);
+    }
+  }
+
+  return { ...match, matchedSkills, missingSkills };
+}
+
 /** A value's kind, never the value itself. "numeric string" is the telling one. */
 function describeValue(value: unknown): string {
   if (value === undefined) {
@@ -593,6 +661,28 @@ export async function scoreJobs(
     if (complete || Date.now() - startedAt > RETRY_WINDOW_MS) {
       break;
     }
+  }
+
+  // Once, over the merged result, so a retry's entries are held to the same rule.
+  const removed = { listings: 0, matched: 0, missing: 0 };
+  results = results.map((match) => {
+    if (match === null) {
+      return null;
+    }
+    const kept = restrictToProfileSkills(match, profile.skills);
+    const matched = match.matchedSkills.length - kept.matchedSkills.length;
+    const missing = match.missingSkills.length - kept.missingSkills.length;
+    if (matched + missing > 0) {
+      removed.listings += 1;
+      removed.matched += matched;
+      removed.missing += missing;
+    }
+    return kept;
+  });
+  if (removed.listings > 0) {
+    // Counts only, as everywhere in this module. Info level: the saved lists
+    // are right; the line measures how often the model drifts.
+    console.log("[agent/matcher] removed skills not in the profile", removed);
   }
 
   const scored = results.filter((match) => match !== null).length;

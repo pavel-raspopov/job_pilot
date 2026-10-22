@@ -153,6 +153,16 @@ drawn from the user's profile and SHALL NOT be invented. A listing the model fai
 score SHALL be identified individually rather than by position, so that a short or
 partial response cannot attribute one listing's score to a different employer.
 
+Both skill lists SHALL be checked against the skills listed in the user's profile before a
+listing is saved, whatever the model returned. Only entries in the profile's skill list
+count as the user's skills. Industries, job titles sought, the current title and
+work-history text do not. Two skills SHALL be treated as the same when they are equal
+ignoring letter case, spacing and punctuation other than `+` and `#`. A matched skill that
+is not one of the user's skills SHALL be removed, and a kept matched skill SHALL be shown
+as the profile spells it, at most once. A missing skill that is one of the user's skills
+SHALL be removed. Removing entries SHALL NOT change the listing's score or reason, and
+each list SHALL hold at most six entries after removal.
+
 The system SHALL NOT send profile identity fields — name, email address, phone number, or
 personal links — to the scoring model, as they carry no scoring signal.
 
@@ -184,6 +194,27 @@ personal links — to the scoring model, as they carry no scoring signal.
 - **WHEN** a search returns ten listings of which seven are already in the user's list,
   one of those seven without a score
 - **THEN** only the three new listings and the one unscored listing are sent for scoring
+
+#### Scenario: A matched skill the user does not have is not saved
+
+- **WHEN** the scoring model names as matched a skill missing from the user's profile
+  skills, an industry from the profile, or a job title the user is seeking
+- **THEN** the saved listing's matched skills do not include it
+- **AND** the listing's score and reason are saved as the model returned them
+
+#### Scenario: A skill the user has is never saved as missing
+
+- **WHEN** the scoring model names as missing a skill the user's profile lists, written
+  in different letter case or punctuation, such as "nodejs" for "Node.js"
+- **THEN** the saved listing's missing skills do not include it
+- **AND** if the model also named it as matched, it is saved once, as matched, in the
+  profile's spelling
+
+#### Scenario: A profile with no skills gets no matched skills
+
+- **WHEN** a user whose profile lists no skills but has a current title searches
+- **THEN** every scored listing has an empty matched-skills list
+- **AND** its missing skills are saved as the model returned them
 
 ### Requirement: Discovered jobs are persisted to the signed-in user's job list
 

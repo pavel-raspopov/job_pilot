@@ -301,6 +301,16 @@ const jobRecord = {
 };
 ```
 
+**The skill lists are filtered against `profiles.skills` before they are saved.**
+`scoreJobs` runs every result through `restrictToProfileSkills` (`agent/matcher.ts`),
+which keeps only profile skills in `matchedSkills` and drops profile skills from
+`missingSkills`. Two skills count as the same when they are equal after normalising
+case, spacing and punctuation, with `+` and `#` kept. The prompt already asks the
+model to draw matched skills from the candidate's own list, and it still put job
+titles, industries and skills the candidate lacks there on 10 of 45 jobs. Prompt
+wording does not stop invention (see the forced-tool-call rule under InsForge AI
+Gateway). Never write the model's lists to `jobs` without going through `scoreJobs`.
+
 ### Deduplication — one row per listing per user
 
 `jobs` has `UNIQUE (user_id, external_id)` and

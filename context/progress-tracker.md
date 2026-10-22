@@ -7,7 +7,7 @@ Update this file after every completed feature. Any AI agent reading this should
 ## Current Status
 
 **Phase:** Phase 4 — Job Details Page (next)
-**Last completed:** Adzuna 503 retry (change `retry-adzuna-unavailable`, after 11)
+**Last completed:** Skill lists held to the profile (change `filter-match-skills`, after 11)
 **Next:** 12 Job Details Page — Full UI
 
 ---
@@ -49,6 +49,36 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Skill lists held to the profile (2026-10-22).** After the model replies,
+  `scoreJobs` keeps a matched skill only if it is in `profiles.skills` (in the
+  profile's spelling, once), and drops a missing skill the profile lists. The score,
+  reason, prompt and tool schema are unchanged. OpenSpec change `filter-match-skills`.
+
+  - **The model invented matched skills on 10 of 45 jobs.** Of 118 matched entries,
+    15 were not profile skills: 4 job titles from `job_titles_seeking`, 8 industries
+    from `industries`, and Python ×2 and Java ×1 for a candidate with neither. Only 2
+    of 130 missing entries contradicted the profile. Feature 10's benchmark found
+    "zero invented" on one payload, and the wider sample overturned it. The prompt
+    already forbade this, so the check is in code, not wording.
+  - **Same skill means equal after normalising** case, spacing and punctuation, with
+    `+` and `#` kept. It is not semantic, so "React.js" is not "React". A paraphrase in
+    matched is dropped (it under-claims), and one in missing survives.
+  - **A list can now be shorter than six, or empty.** The schema's `maxItems: 6` means
+    an invented entry has already taken a real skill's slot. Feature 12 needs an empty
+    state for "You have".
+  - **Dev DB corrected in place, not by migration.** The 11 affected rows were fixed
+    by SQL that applies the same rule. Before the real run there was a rolled-back dry
+    run, and a check that the SQL and the TypeScript agreed on all 45 rows. Afterwards
+    the lists hash equalled the TypeScript's prediction, and the hash of score, reason,
+    `found_at`, `run_id` and `external_id` was unchanged.
+  - **Verified live:** a "Data Analyst / Boston" search logged
+    `removed skills not in the profile { listings: 2, matched: 3 }`, charged exactly one
+    `ai_usage` row, and left 0 bad entries across all 55 rows. The 10-case offline
+    harness passed. With the filter disabled it failed 9 cases and flagged exactly the
+    11 corrected rows, so it does catch a broken filter.
+  - **Review: 1 Minor, fixed.** A spec scenario said "every saved listing" where an
+    unscored listing is saved with null lists. It now says "every scored listing".
 
 - **Adzuna 503 retry (2026-10-22).** `searchJobs()` retries an Adzuna 503 up to twice,
   with jittered waits, inside the existing 10 s budget, so a momentary refusal no
@@ -156,10 +186,9 @@ Update this file after every completed feature. Any AI agent reading this should
   - **Surplus entries are common and harmless:** 5 of 28 direct replies appended
     extra entries at out-of-range indices (one repeated the whole list as 10-19,
     ~2,000 tokens against the 3,072 cap). They log at info level.
-  - **Open, not fixed here:** one good reply listed React and TypeScript as
-    *missing* skills though both are in the profile. The Feature 10 benchmark
-    checked only that `matched_skills` invents nothing; `missing_skills`
-    contradicting the profile was never measured.
+  - **Fixed later by `filter-match-skills`:** one good reply listed React and
+    TypeScript as *missing* skills though both are in the profile. Measuring it showed
+    the larger defect was in `matched_skills` (see the entry at the top).
 
 - **Feature 11 Filter + Sort + Pagination (2026-09-24).** `/find-jobs` no longer
   fetches every saved job and slices it in the browser. The page reads `q` /
