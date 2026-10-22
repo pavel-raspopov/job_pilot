@@ -7,8 +7,8 @@ Update this file after every completed feature. Any AI agent reading this should
 ## Current Status
 
 **Phase:** Phase 4 — Job Details Page (next)
-**Last completed:** 11 Filter + Sort + Pagination
-**Next:** job deduplication (its own change, moved out of 11 — see `build-plan.md` Feature 11), then 12 Job Details Page — Full UI
+**Last completed:** job deduplication (change `add-job-deduplication`, after 11)
+**Next:** 12 Job Details Page — Full UI
 
 ---
 
@@ -49,6 +49,55 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Job deduplication (2026-10-22).** A search no longer saves or re-scores a listing
+  the user already has. Migration `005` adds `jobs.external_id`,
+  `UNIQUE (user_id, external_id)` and a CHECK that every search row carries one. The
+  route looks up known ids, scores only the rest, and inserts with conflict-ignore.
+  OpenSpec change `add-job-deduplication`.
+
+  - **The key is Adzuna's listing `id`, not title + company**, which reverses the
+    Feature 10 note. A probe showed the id is stable across requests and over a month.
+    The redirect URL's *path* carries it, and only the query (`se`, `utm_*`) varies.
+    Every duplicate pair in the dev DB shared one id, including pairs whose URLs differed.
+  - **Both a lookup and the constraint, because each alone fails.** The lookup alone
+    races (two tabs). The constraint alone still bills scoring for known jobs, and a
+    plain atomic `insert` would reject the whole batch on one conflict.
+  - **`upsert(…, { ignoreDuplicates: true })` works on InsForge**, although the SDK
+    docs omit it (probed on a throwaway table). The response holds only inserted rows,
+    so every count (`newJobs`, strong matches, `jobs_found`, `job_found` events) comes
+    from what the DB saved. The unique index must not be partial, or `on_conflict` cannot
+    target it.
+  - **A re-found job is untouched** (developer decision): same score, Date Found and
+    `run_id`. `jobsFound` now means "listings found" and `newJobs` means "saved". The
+    all-already-saved outcome is a neutral notice, not the green banner.
+  - **Migration collapsed 20 dev rows to 10**, keeping the earliest copy of each, and
+    recounted `agent_runs.jobs_found`, so the second September run now reads 0.
+  - **Verified live**, counting rows before and after each step:
+    - all-known search: no `/chat/completion` in insforge.logs, every row's hash
+      unchanged, 0 `job_found` events;
+    - mixed search: 5 new, matcher scored exactly 5, 5 events carrying the stored
+      scores;
+    - staggered race: both requests scored the same 2 listings, one saved them, the
+      other reported 0 new, and exactly 2 events fired.
+  - **Adversarial review: 0 Critical, 1 Important, 2 Minor. All three were fixed and
+    re-verified.**
+    - *(Important)* A job saved unscored, because scoring failed, could never be scored
+      again: dedup skipped it on every later search, and repeating the search had been
+      the only recovery. Now a saved row with a null score joins the scoring call and is
+      filled in by an update guarded by `match_score IS NULL`, which never overwrites.
+      It is not counted as new and fires no event. Verified live: the gateway 429ed on
+      the first attempt, the retry scored the row, and its date and run were unchanged.
+    - *(Minor)* The main spec's scoring-failure requirement still said "all discovered
+      jobs are saved". It is now modified in the delta.
+    - *(Minor)* `005` recounted every run, so any re-run would rewrite history once jobs
+      can be deleted. It now subtracts only the duplicates it deletes, in one
+      data-modifying CTE, which makes a re-run a proven no-op.
+  - **Found, out of scope: Adzuna answers 503 to concurrent requests on one key**,
+    even for two different queries. The key is shared by all users, so two people
+    searching at the same moment means one sees "Job search is unavailable". That one
+    failure is handled cleanly (run failed, no slot charged), but it is a real
+    production problem.
 
 - **Fix: searches saved every listing unscored (2026-09-24).** One live search
   logged `scored 0 of 10` with no error line. The obvious suspect — entries with

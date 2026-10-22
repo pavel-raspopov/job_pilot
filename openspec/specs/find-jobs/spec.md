@@ -361,9 +361,10 @@ a visible label and placeholder text, plus a primary Find Jobs action. The field
 accept free text. The job title SHALL be required and the location SHALL remain optional.
 
 Submitting the search SHALL run a real job search and, on success, SHALL reveal a summary
-stating how many jobs that search found and how many of them were saved as strong matches.
-The counts SHALL describe the search just performed, not the user's stored total. The
-summary SHALL be announced to assistive technology as a status message.
+stating how many jobs that search found, how many of them were new to the user's list, and
+how many of the new jobs were saved as strong matches. The counts SHALL describe the search
+just performed, not the user's stored total. The summary SHALL be announced to assistive
+technology as a status message.
 
 While a search is running the system SHALL indicate that work is in progress in the action
 itself and SHALL announce it to assistive technology, because a search may take tens of
@@ -380,7 +381,10 @@ A submission with an empty job title SHALL be refused without issuing any reques
 SHALL return the user's focus to the job title field.
 
 A search that completes but finds nothing SHALL be presented as an informational outcome
-rather than as a success or an error.
+rather than as a success or an error. A search that finds jobs, all of which are already in
+the user's list, SHALL also be presented as an informational outcome, stating how many jobs
+were found and that all of them were already saved, rather than as a success that added
+nothing.
 
 On success the displayed job list SHALL update to include the newly saved jobs without the
 user reloading the page, and without discarding any filter, sort, or page position they had
@@ -388,9 +392,20 @@ already set.
 
 #### Scenario: Search reveals the result summary for that run
 
-- **WHEN** the user activates Find Jobs and the search saves jobs
-- **THEN** a summary naming the number of jobs found and strong matches saved by that
-  search appears below the search fields
+- **WHEN** the user activates Find Jobs and the search saves new jobs
+- **THEN** a summary naming the number of jobs found, the number new to the list, and the
+  strong matches among the new jobs appears below the search fields
+
+#### Scenario: A search re-finding some saved jobs reports only the new ones as new
+
+- **WHEN** a search finds ten jobs of which three were not already saved
+- **THEN** the summary reports ten found and three new
+
+#### Scenario: A search finding only saved jobs is informational
+
+- **WHEN** a search finds jobs and every one of them is already in the user's list
+- **THEN** an informational message states how many were found and that all were already
+  saved, and no success summary is shown
 
 #### Scenario: Search summary is hidden before the first search
 

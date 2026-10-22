@@ -31,7 +31,7 @@ const NO_RESULTS_MESSAGE =
 type SearchState =
   | { status: "idle" }
   | { status: "searching" }
-  | { status: "success"; jobsFound: number; strongMatches: number }
+  | { status: "success"; jobsFound: number; newJobs: number; strongMatches: number }
   | { status: "error"; message: string };
 
 /**
@@ -42,6 +42,10 @@ type SearchState =
  * the list; that reasoning inverts once the table holds history, because a user
  * with 24 saved jobs whose search finds 3 must be told 3, and `jobs.length`
  * would say 27. The banner describes the run, not the table.
+ *
+ * "Found" and "new" differ because a listing already in the list is not saved
+ * again. A search that only re-finds saved jobs is a notice, not a success: it
+ * added nothing, and a green banner would say it had.
  *
  * This is a billed action, so the in-flight guard is a `useRef` and not just a
  * `disabled` attribute — `setState` lands a render later, so two clicks in one
@@ -103,6 +107,7 @@ export function SearchControls() {
       setState({
         status: "success",
         jobsFound: result.jobsFound ?? 0,
+        newJobs: result.newJobs ?? 0,
         strongMatches: result.strongMatches ?? 0,
       });
 
@@ -175,11 +180,19 @@ export function SearchControls() {
           <p className={NOTICE_CLASS}>{NO_RESULTS_MESSAGE}</p>
         ) : null}
 
-        {state.status === "success" && state.jobsFound > 0 ? (
+        {state.status === "success" && state.jobsFound > 0 && state.newJobs === 0 ? (
+          <p className={NOTICE_CLASS}>
+            {state.jobsFound === 1
+              ? "Found 1 job, already in your list."
+              : `Found ${state.jobsFound} jobs, all already in your list.`}
+          </p>
+        ) : null}
+
+        {state.status === "success" && state.newJobs > 0 ? (
           <p className="mt-4 flex items-center gap-2 rounded-md border border-success-light bg-success-lightest px-3 py-2 text-sm text-success-foreground">
             <Sparkles className="h-4 w-4 shrink-0" aria-hidden="true" />
-            Found {state.jobsFound} {state.jobsFound === 1 ? "job" : "jobs"} and saved{" "}
-            {state.strongMatches} strong{" "}
+            Found {state.jobsFound} {state.jobsFound === 1 ? "job" : "jobs"},{" "}
+            {state.newJobs} new, {state.strongMatches} strong{" "}
             {state.strongMatches === 1 ? "match" : "matches"}.
           </p>
         ) : null}

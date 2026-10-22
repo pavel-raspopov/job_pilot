@@ -314,7 +314,7 @@ The two paths never touch each other’s object or columns.
 | status             | text        | running / completed / failed |
 | job_title_searched | text        |                              |
 | location_searched  | text        |                              |
-| jobs_found         | integer     | Total jobs discovered        |
+| jobs_found         | integer     | Jobs this run newly saved    |
 | started_at         | timestamptz |                              |
 | completed_at       | timestamptz |                              |
 
@@ -327,6 +327,7 @@ The two paths never touch each other’s object or columns.
 | user_id            | uuid        | References profiles                            |
 | source             | text        | search / url                                   |
 | source_url         | text        | Original job listing URL                       |
+| external_id        | text        | Provider listing id (Adzuna `id`) — dedup key  |
 | external_apply_url | text        | Direct company apply URL                       |
 | title              | text        |                                                |
 | company            | text        |                                                |
@@ -344,7 +345,17 @@ The two paths never touch each other’s object or columns.
 | matched_skills     | text[]      | Skills user has that match                     |
 | missing_skills     | text[]      | Skills user lacks                              |
 | company_research   | jsonb       | Company dossier from research agent            |
-| found_at           | timestamptz |                                                |
+| found_at           | timestamptz | When first found — a re-found job keeps it     |
+
+**One row per listing per user** (`db/migrations/005_add_jobs_external_id.sql`):
+`UNIQUE (user_id, external_id)` — deliberately not partial, so PostgREST's `on_conflict`
+can target it — and `CHECK (source <> 'search' or external_id is not null)`.
+`POST /api/agent/find` looks up the ids the user already has, scores only the rest, and
+inserts with conflict-ignore (`upsert … ignoreDuplicates`), counting only the rows the
+database returns. A re-found job is never re-scored or updated, with one exception: a
+row saved **without** a score (scoring failed) is scored on its next appearance and its
+four scoring columns are filled in by an update guarded by `match_score IS NULL`, so it
+can never overwrite. See `library-docs.md` → Adzuna API → Deduplication.
 
 ### `agent_logs`
 

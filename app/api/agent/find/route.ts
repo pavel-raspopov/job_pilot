@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { searchJobs } from "@/agent/adzuna";
-import { scoreJobs } from "@/agent/matcher";
+import { searchJobs, type AdzunaJob } from "@/agent/adzuna";
+import { scoreJobs, type ScoredMatch } from "@/agent/matcher";
 import {
   AI_ROUTE,
   checkAiRateLimit,
@@ -21,7 +21,10 @@ import type { FindActionResult } from "@/types";
  *
  * The first route in this app where a button press spends money: one batched
  * gateway call (two when the first reply leaves jobs unscored — see
- * `scoreJobs`) plus one request against a shared Adzuna quota. `maxDuration`
+ * `scoreJobs`; none when every listing is already saved with a score) plus one
+ * request against a shared Adzuna quota. Only listings the user does not
+ * already have are saved — `jobs.external_id` is the key — and only those, plus
+ * saved ones whose first scoring failed, are scored. `maxDuration`
  * must be at least `AI_TIMEOUT_MS` (120s) or the route inherits the platform
  * default and dies in production while passing every local test.
  */
@@ -198,26 +201,89 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // returned above.
     await recordAiCall(insforge, userId, AI_ROUTE.agentFind);
 
-    if (search.jobs.length === 0) {
+    const jobsFound = search.jobs.length;
+
+    if (jobsFound === 0) {
       // Not an error: the search ran, the market was empty. No model call and
       // nothing inserted, but the attempt is counted above.
       await finishRun(insforge, runId, userId, "completed", 0);
       return NextResponse.json<FindActionResult>({
         success: true,
         jobsFound: 0,
+        newJobs: 0,
         strongMatches: 0,
       });
     }
 
-    const matches = await scoreJobs(profile, search.jobs);
+    const saved = await loadSavedListings(
+      insforge,
+      userId,
+      search.jobs.map((job) => job.externalId),
+    );
+    const fresh = search.jobs.filter((job) => !saved.has(job.externalId));
+    // Saved, but scoring failed the first time. Re-scoring a SCORED job would
+    // bill the user to change a number they have already seen; an unscored one
+    // has no number yet, and repeating the search is how the user recovers it.
+    const unscored = search.jobs.filter((job) => saved.get(job.externalId) === false);
+    console.log(
+      "[api/agent/find]",
+      jobsFound - fresh.length,
+      "of",
+      jobsFound,
+      "listings already saved,",
+      unscored.length,
+      "of them unscored",
+    );
 
-    const jobRows = search.jobs.map((job, index) => {
-      const match = matches[index] ?? null;
+    if (fresh.length === 0 && unscored.length === 0) {
+      // Every listing is already in the list with a score. No model call.
+      await finishRun(insforge, runId, userId, "completed", 0);
+      return NextResponse.json<FindActionResult>({
+        success: true,
+        jobsFound,
+        newJobs: 0,
+        strongMatches: 0,
+      });
+    }
+
+    // One call for both batches. `scoreJobs` aligns its result to its input, so
+    // the first `fresh.length` entries belong to `fresh` — not to `search.jobs`.
+    const matches = await scoreJobs(profile, [...fresh, ...unscored]);
+    const freshMatches = matches.slice(0, fresh.length);
+
+    const filledIn = await fillMissingScores(
+      insforge,
+      userId,
+      unscored,
+      matches.slice(fresh.length),
+    );
+    if (unscored.length > 0) {
+      console.log("[api/agent/find] filled in", filledIn, "of", unscored.length, "missing scores");
+    }
+
+    if (fresh.length === 0) {
+      // Nothing new to save. A filled-in job is not new and was counted as
+      // found when it was first saved, so no count and no event.
+      await finishRun(insforge, runId, userId, "completed", 0);
+      if (filledIn > 0) {
+        revalidatePath("/find-jobs");
+      }
+      return NextResponse.json<FindActionResult>({
+        success: true,
+        jobsFound,
+        newJobs: 0,
+        strongMatches: 0,
+      });
+    }
+
+    const jobRows = fresh.map((job, index) => {
+      const match = freshMatches[index] ?? null;
       return {
         user_id: userId,
         run_id: runId,
         source: "search",
         source_url: null,
+        external_id: job.externalId,
         external_apply_url: job.redirectUrl,
         title: job.title,
         company: job.company,
@@ -243,7 +309,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       };
     });
 
-    const { error: insertError } = await insforge.database.from("jobs").insert(jobRows);
+    // Conflict-ignoring, not a plain insert. The lookup above races: a second
+    // search in another tab can save one of these listings in between, and a
+    // plain `insert` is atomic, so one conflicting row would reject all ten.
+    // The unique constraint skips that row instead, and the response holds
+    // only the rows actually inserted. Never a merge: a saved job keeps its
+    // first score and date (a missing score is filled in above, not here).
+    const { data: insertedRows, error: insertError } = await insforge.database
+      .from("jobs")
+      .upsert(jobRows, { onConflict: "user_id,external_id", ignoreDuplicates: true })
+      .select("match_score");
 
     if (insertError) {
       console.error("[api/agent/find] could not save jobs", insertError);
@@ -251,22 +326,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return fail(SERVICE_ERROR);
     }
 
-    await finishRun(insforge, runId, userId, "completed", jobRows.length);
+    // Every count below comes from what the database inserted, not from what
+    // was sent: when two searches race on one listing, only the one that saved
+    // it may count it.
+    const savedScores = (Array.isArray(insertedRows) ? insertedRows : []).map(readMatchScore);
 
-    const strongMatches = jobRows.filter(
-      (row) => (row.match_score ?? 0) >= HIGH_MATCH_THRESHOLD,
+    await finishRun(insforge, runId, userId, "completed", savedScores.length);
+
+    const strongMatches = savedScores.filter(
+      (score) => (score ?? 0) >= HIGH_MATCH_THRESHOLD,
     ).length;
 
-    await recordFoundJobs(
-      userId,
-      jobRows.map((row) => row.match_score),
-    );
+    await recordFoundJobs(userId, savedScores);
 
     revalidatePath("/find-jobs");
 
     return NextResponse.json<FindActionResult>({
       success: true,
-      jobsFound: jobRows.length,
+      jobsFound,
+      newJobs: savedScores.length,
       strongMatches,
     });
   } catch (error) {
@@ -276,6 +354,102 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     return fail(SERVICE_ERROR);
   }
+}
+
+/**
+ * Which of these listings the user has already saved, mapped to whether the
+ * saved row has a match score.
+ *
+ * Never throws. A failed lookup degrades to "none saved" instead of failing
+ * the search: the slot is already spent, and the conflict-ignoring insert keeps
+ * the list free of duplicates regardless. The cost of degrading is one batch
+ * scored that did not need to be.
+ */
+async function loadSavedListings(
+  insforge: InsforgeServerClient,
+  userId: string,
+  externalIds: string[],
+): Promise<Map<string, boolean>> {
+  const saved = new Map<string, boolean>();
+  try {
+    const { data, error } = await insforge.database
+      .from("jobs")
+      .select("external_id, match_score")
+      .eq("user_id", userId)
+      .in("external_id", externalIds);
+
+    if (error) {
+      console.error("[api/agent/find] could not look up saved listings", error);
+      return saved;
+    }
+    for (const row of Array.isArray(data) ? data : []) {
+      const id: unknown = (row as { external_id?: unknown }).external_id;
+      if (typeof id === "string") {
+        saved.set(id, readMatchScore(row) !== null);
+      }
+    }
+  } catch (error) {
+    console.error("[api/agent/find] saved-listing lookup threw", error);
+  }
+  return saved;
+}
+
+/**
+ * Writes scores for saved rows that have none. Returns how many rows it filled.
+ *
+ * Each update is guarded by `match_score IS NULL`, so it can only fill a gap,
+ * never overwrite: if a concurrent search filled the row a moment earlier, the
+ * update matches nothing. Only the four scoring columns change — the row keeps
+ * its date found and its run.
+ *
+ * Never throws. The jobs are already saved, so a failed fill-in is logged and
+ * left for the next search rather than failing this one.
+ */
+async function fillMissingScores(
+  insforge: InsforgeServerClient,
+  userId: string,
+  jobs: AdzunaJob[],
+  matches: (ScoredMatch | null)[],
+): Promise<number> {
+  let filled = 0;
+  for (const [index, job] of jobs.entries()) {
+    const match = matches[index] ?? null;
+    if (match === null) {
+      continue;
+    }
+    try {
+      const { data, error } = await insforge.database
+        .from("jobs")
+        .update({
+          match_score: match.matchScore,
+          match_reason: match.matchReason,
+          matched_skills: match.matchedSkills,
+          missing_skills: match.missingSkills,
+        })
+        .eq("user_id", userId)
+        .eq("external_id", job.externalId)
+        .is("match_score", null)
+        .select("id");
+
+      if (error) {
+        console.error("[api/agent/find] could not fill in a missing score", error);
+        continue;
+      }
+      filled += Array.isArray(data) ? data.length : 0;
+    } catch (error) {
+      console.error("[api/agent/find] filling in a missing score threw", error);
+    }
+  }
+  return filled;
+}
+
+/** A returned row's score, or null for an unscored or unreadable row. */
+function readMatchScore(row: unknown): number | null {
+  const score: unknown =
+    typeof row === "object" && row !== null
+      ? (row as { match_score?: unknown }).match_score
+      : undefined;
+  return typeof score === "number" ? score : null;
 }
 
 /** Fire-and-forget capture. Analytics must never fail a search. */
@@ -292,7 +466,8 @@ function capture(
 }
 
 /**
- * One `job_found` per saved job, then an explicit flush.
+ * One `job_found` per newly saved job, then an explicit flush. A re-found
+ * listing is not counted again.
  *
  * `lib/posthog-server.ts` builds the client with `flushAt: 1`, so each capture
  * starts a request immediately — but nothing awaits it. A serverless function

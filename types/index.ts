@@ -130,10 +130,11 @@ export type GenerateActionResult = {
 /**
  * Result shape of `POST /api/agent/find`.
  *
- * Both counts describe **the search just performed**, not the user's stored
- * total: a user with 24 saved jobs whose search finds 3 must be told 3. They are
- * computed from the rows actually written, so the summary cannot contradict the
- * list the page renders after refreshing.
+ * All three counts describe **the search just performed**, not the user's stored
+ * total: a user with 24 saved jobs whose search finds 3 must be told 3. The
+ * saved counts come from the rows the database reports it actually inserted, so
+ * the summary cannot contradict the list the page renders after refreshing —
+ * even when two searches race on one listing.
  *
  * A search that legitimately finds nothing returns `success: true` with zeros —
  * the search ran, the market was empty.
@@ -141,7 +142,11 @@ export type GenerateActionResult = {
 export type FindActionResult = {
   success: boolean;
   error?: string;
+  /** Listings the provider returned, including ones already in the user's list. */
   jobsFound?: number;
+  /** Rows this search inserted. Listings already saved are not saved again. */
+  newJobs?: number;
+  /** Of the `newJobs`, how many cleared the strong-match threshold. */
   strongMatches?: number;
 };
 

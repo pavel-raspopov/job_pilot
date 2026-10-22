@@ -257,12 +257,13 @@ Each Adzuna job result contains:
 
 ```typescript
 type AdzunaJob = {
-  id: string;
+  id: string; // stable listing id — the dedup key, stored as jobs.external_id
   title: string;
   company: { display_name: string };
   location: { display_name: string };
   description: string; // snippet only — not full description
-  redirect_url: string; // Adzuna tracking URL → redirects to actual job
+  redirect_url: string; // Adzuna tracking URL → redirects to actual job. Its QUERY
+  //   (se, utm_*) changes on every request; its PATH is /land/ad/<id> or /details/<id>
   salary_min?: number;
   salary_max?: number;
   salary_is_predicted: "0" | "1"; // "1" means salary is estimated
@@ -275,12 +276,14 @@ type AdzunaJob = {
 ### Saving Jobs to DB
 
 ```typescript
-// Map Adzuna result to jobs table
+// Map Adzuna result to jobs table — app/api/agent/find/route.ts holds the shipped
+// mapping (salary via formatSalary(), job_type null, found_at left to the default)
 const jobRecord = {
   user_id: userId,
   run_id: runId,
   source: "search", // always 'search' for Adzuna jobs
-  source_url: job.redirect_url,
+  source_url: null,
+  external_id: job.id, // dedup key — never redirect_url (see Deduplication below)
   external_apply_url: job.redirect_url,
   title: job.title,
   company: job.company.display_name,
@@ -288,15 +291,46 @@ const jobRecord = {
   salary: job.salary_min
     ? `$${Math.round(job.salary_min / 1000)}k - $${Math.round(job.salary_max! / 1000)}k`
     : null,
-  job_type: job.contract_type || "fulltime",
+  job_type: null, // Adzuna supplies no employment type — never default one
   about_role: job.description, // Adzuna returns snippet — used as description
   match_score: scoredJob.matchScore,
   match_reason: scoredJob.matchReason,
   matched_skills: scoredJob.matchedSkills,
   missing_skills: scoredJob.missingSkills,
-  found_at: new Date().toISOString(),
+  // found_at omitted: the column defaults to now()
 };
 ```
+
+### Deduplication — one row per listing per user
+
+`jobs` has `UNIQUE (user_id, external_id)` and
+`CHECK (source <> 'search' or external_id is not null)` (migration `005`). The route:
+
+1. looks up which returned ids the user already has
+   (`.select("external_id").eq("user_id", …).in("external_id", ids)`);
+2. scores only the rest — a saved job is never re-scored (it is billed, and the model
+   gives the same listing different scores from run to run) — **except a saved row
+   with no score**, which joins the same scoring call and is filled in with
+   `.update({…4 scoring columns}).eq("external_id", id).is("match_score", null)`. The
+   `is null` guard makes it fill-only: a concurrent fill turns it into a no-op;
+3. inserts with conflict-ignore and counts only what comes back:
+
+```typescript
+const { data, error } = await insforge.database
+  .from("jobs")
+  .upsert(rows, { onConflict: "user_id,external_id", ignoreDuplicates: true })
+  .select("match_score"); // ONLY the rows actually inserted
+```
+
+- **Probed on InsForge (2026-10-22):** `upsert` is absent from the SDK docs but works —
+  the SDK wraps `postgrest-js`. A duplicate is skipped with no error and is missing from
+  `data`; the existing row is not overwritten. NULL keys never conflict.
+- **The unique index must not be partial.** `on_conflict` emits `ON CONFLICT (cols)`
+  with no predicate, which Postgres cannot match to a partial index.
+- **A plain `insert([...])` is atomic** — with the constraint in place, one known row
+  rejects the whole batch with 23505. Never go back to it for search results.
+- The lookup alone is not enough (two tabs race); the constraint alone is not enough
+  (known jobs would still be scored). Both are needed.
 
 **Rules:**
 

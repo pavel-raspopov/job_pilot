@@ -1,159 +1,130 @@
-# Memory — Feature 11 Filter + Sort + Pagination, then the matcher fix
+# Memory — Job deduplication
 
-Last updated: 2026-10-02 (matcher fix merged after Feature 11)
+Last updated: 2026-10-22
 
 ## What was built
 
-Feature 11, the last item of Phase 3. `/find-jobs` filters, sorts and pages in
-Postgres instead of slicing the whole list in the browser; the four view values
-(`q`, `match`, `sort`, `page`) live in the URL; 20 rows per page.
+A search no longer saves or re-scores a listing the user already has. OpenSpec
+change `add-job-deduplication`: proposed, applied, reviewed and archived to
+`openspec/changes/archive/2026-10-22-add-job-deduplication/` on 2026-10-22. Its
+deltas added 1 requirement and modified 7 across `openspec/specs/job-discovery/`
+and `openspec/specs/find-jobs/`. The decision record is in
+`context/progress-tracker.md` under "Job deduplication".
 
-OpenSpec change `add-server-side-job-list` — proposed (2026-09-04), applied,
-reviewed, and archived to
-`openspec/changes/archive/2026-10-02-add-server-side-job-list/`. Its delta
-replaced four requirements in `openspec/specs/find-jobs/spec.md` (35 → 46
-scenarios). The full decision record is in `context/progress-tracker.md` under
-"Feature 11"; design corrections found during apply are recorded inline in the
-archived `design.md` (D6, D8, D10, D12).
-
-- **New:** `lib/job-list-params.ts` (parse / write the URL, `normalizeQuery`).
-- **Modified:** `app/(app)/find-jobs/page.tsx` (the query, clamp, empty-state
-  cause), `components/find-jobs/JobsTable.tsx` (renders props, writes the URL,
-  pending state), `components/find-jobs/JobsPagination.tsx` (windowed pages,
-  `disabled`, current-page class fix), `types/index.ts` (`JobListParams`).
-- **Docs:** `ui-registry.md` (new **List pending state** entry and **Variant
-  Class Standard**, five entries corrected), `architecture.md`,
-  `library-docs.md` (DB Queries rewritten with the paging patterns),
-  `build-plan.md`, `progress-tracker.md`.
-- No migration, no dependency, no new PostHog event.
-
-**Matcher fix**, a separate session, committed on top of Feature 11: some
-searches had saved every listing unscored. `agent/matcher.ts` reads every tool
-call, retries once, pins `minItems`, and logs drop counts; comments updated in
-`lib/ai-rate-limit.ts` and `app/api/agent/find/route.ts`. No OpenSpec change —
-a bug fix; the record is the tracker entry "Fix: searches saved every listing
-unscored".
+- **New:** `db/migrations/005_add_jobs_external_id.sql`. It is **applied to the
+  dev DB**: `jobs.external_id`, `UNIQUE (user_id, external_id)`, and a CHECK
+  requiring an id on search rows.
+- **Modified:** `agent/adzuna.ts` (reads Adzuna's `id`, dedupes by it, drops
+  listings with no id), `app/api/agent/find/route.ts` (lookup, then score the new
+  and unscored, conflict-ignore insert, guarded fill-in), `types/index.ts`
+  (`FindActionResult.newJobs`), `components/find-jobs/SearchControls.tsx`
+  ("Found 10 jobs, 3 new, 1 strong match." and the all-saved notice).
+- **Docs:** `architecture.md`, `library-docs.md` (new Deduplication section, and
+  the stale Adzuna mapping lines fixed), `build-plan.md`, `ui-registry.md`,
+  `progress-tracker.md`.
 
 ## Decisions made
 
-All recorded in the tracker and the archived design. The ones that would hurt
-to undo by accident:
+All recorded in the tracker and the archived design (D1–D10). The ones that would
+hurt to undo by accident:
 
-- **Never call `.or()` twice in one InsForge query** — the second `or=` key is
-  mangled by the InsForge records endpoint (PGRST100). Nest groups in one `.or()`.
-- **The ordering must end in `id`.** Search batches share an identical
-  `found_at`; without a unique last key, offset paging repeats and skips rows.
-- **The out-of-range clamp has two branches and both are live.** An offset past
-  the end is a 416 (PGRST103) with no count; an offset exactly at the end is a
-  200 with the count. Neither is redundant.
-- **JobsTable's `intended` view and "debounce armed" flag are state, not refs**
-  — `react-hooks/refs` (react-hooks 7, via `eslint-config-next`) forbids reading
-  refs in render, which the resync does.
-- **Deduplication is its own change, next.** A pre-dedup count beside a
-  post-dedup range would make the footer lie. Adzuna's `redirect_url` is a
-  per-request tracking link — not a key; title + company at minimum.
-- **Matcher: never go back to reading only `tool_calls[0]`, and keep
-  `minItems` = job count on `matches`.** flash-lite intermittently sent an empty
-  `{"matches":[]}`, alone or ahead of a second call. The gateway enforces
-  `minItems` (probed). No `maxItems` — a capped array spills into extra parallel
-  calls instead of stopping.
-- **The scoring retry does not consume a search slot** (the flakiness is the
-  model's): worst case 20 billed calls an hour, noted in `LIMITS`. The developer
-  has not ruled on this — revisit if they want retries counted.
+- **The key is Adzuna's `id`, not title + company and not `redirect_url`.**
+  Probed: it is stable across requests and over a month, and it is the redirect
+  URL's path. US, UK and AU ids share one global range.
+- **Never go back to a plain `insert([...])` for search results.** With the
+  constraint in place it is atomic, so one known row fails the whole batch. Use
+  `upsert(…, { onConflict: "user_id,external_id", ignoreDuplicates: true })`,
+  which was probed on InsForge although its docs omit it, and count only the
+  rows it returns.
+- **The unique constraint must stay non-partial.** `on_conflict` cannot target a
+  partial index.
+- **A saved job is never re-scored or changed. The one exception is a row with a
+  null score**, filled in by an update guarded by `match_score IS NULL`. That guard
+  is the only thing preventing an overwrite; don't drop it.
+- **`jobsFound` now means "listings found"; `newJobs` means "rows inserted".**
+  `agent_runs.jobs_found` means jobs that run newly saved.
 
 ## Problems solved
 
-- **The power cut lost the session before `/remember save`.** State was rebuilt
-  from `git status`, file mtimes and the change's `tasks.md`. The 46 seed rows
-  from the interrupted session were still in the DB.
-- **InsForge backend was paused** after three weeks idle: health check 503 "No
-  backend services available". Not the MCP config this time — the `${VAR}`s
-  expanded fine. The developer resumed it in the console; then a full app
-  restart reconnected the MCP.
-- **`aria-busy` does not announce** — it suppresses. A `role="status"` region
-  outside the busy section speaks "Updating results…".
-- **A navbar click within 300 ms of typing was swallowed** by the debounce's
-  late `router.replace` (Next abandons a pending navigation for a newer one).
-  Fixed by sending waiting text on blur; Back/Forward cancels it.
-- **The current page button was never highlighted** (since Feature 09): an
-  appended `bg-accent-muted` loses to `bg-surface` on stylesheet order.
-- **"scored 0 of 10" was an empty tool call, not dropped entries.** The
-  string-typed-index theory was refuted by response size alone: the InsForge
-  request log showed the failing `/chat/completion` at 284 bytes against 5,851
-  for a good one. 3 of 19 first replies on that payload opened empty before the
-  fix; 10 of 10 scored first time after it, and the live check scored 10/10.
+- **Adzuna returns 503 to concurrent requests on one key**, even for two
+  different queries. A same-tick race test never reaches the DB. Stagger the
+  second request about 1.5 s so it enters while the first is still scoring.
+- **A literal timestamp in a PostHog HogQL query is read in the project's
+  timezone** and silently cuts events out. Use `now() - INTERVAL …`.
+- **A node script doing string replacement on the CRLF `context/` docs matched
+  only one-line patterns**, leaving mixed line endings. Use the Edit tool on
+  those files.
+- The auto-mode classifier refuses unplanned writes, and sometimes reads, through
+  `run-raw-sql`. Writes the developer approved in chat went through.
 
 ## Current state
 
-- `npm run lint`, `npx tsc --noEmit`, `npm run build`, `check:agents`,
-  `check:sync`, `openspec validate --all --strict` (3 specs) all pass.
-- Verified live against SQL oracles: 66 filter/band combinations, paging
-  integrity per sort (sha256 of rendered order = SQL order), out-of-range
-  cases, the four empty-state cells with a genuinely empty account, Back/Forward,
-  typing bursts, pending state, hard reload, one real billed search.
-- Adversarial review: 0 Critical, 2 Important, 9 Minor — both Important and
-  seven Minors fixed and re-verified live; one Minor accepted (Next clicked
-  within 300 ms of typing lands on page 2 of the new filter).
-- Committed with this memory file; nothing deployed.
-- Dev DB: 20 real jobs from 2 searches, all scored, no seed rows. The pre-fix
-  failure's 10 unscored jobs and their run were deleted on 2026-10-02; its
-  `ai_usage` row was kept, since that call was really billed.
-- **Matcher fix is merged** on top of Feature 11. Lint, tsc and build pass on
-  the rebased code; a 13-case offline harness (empty, partial, throwing, slow and
-  malformed replies) never throws, never exceeds two calls, and logs no reason
-  text.
+- Lint, `tsc`, build, `check:agents`, `check:sync`, and `openspec validate --all
+  --strict` (3 specs) all pass.
+- Verified live with row counts before and after each step:
+  - all-saved search: no `/chat/completion`, no rows changed;
+  - mixed search: 5 new, 5 scored, 5 events;
+  - staggered race: one search saved the rows, the other reported 0 new;
+  - fill-in of a blanked row: scored after a gateway 429 and a retry, with its
+    date and run unchanged;
+  - migration re-run is a no-op (rolled-back dry run).
+- Dev DB: 15 jobs, all scored, no seed rows. The backup table was dropped.
+  Avoca AI (`5889071313`) now scores 75 (it was 50; it was blanked for the
+  fill-in test).
+- Committed with this memory file. Nothing deployed.
 
 ## Next session starts with
 
-`/opsx-propose` **job deduplication** — a write-path change to
-`POST /api/agent/find`, composite key (title + company at minimum, not the
-apply URL). Read `build-plan.md` Feature 11's dedup note and the Feature 10
-tracker entry on `redirect_url` first. Then Feature 12 Job Details Page.
+Feature 12, the Job Details Page: `/opsx-propose`. Settle the `missing_skills`
+question below first, because Feature 12 renders those lists.
 
 ## Open questions
 
-- **`missing_skills` can contradict the profile** — one scoring reply listed
-  React and TypeScript as missing for a candidate who has both. Never
-  benchmarked; settle it before Feature 12 renders the skill lists.
-
-- Next fetches bare `/find-jobs` twice per navigation (dev and prod; a direct
-  `router.push` reproduces it). Harmless, cause unknown.
-- The status region is verified in the DOM, not with NVDA/VoiceOver.
-- 300 ms debounce is unmeasured. A `pg_trgm` index only if a user reaches
-  thousands of jobs. `?page=1e20` (unsafe integer) falls back to page 1.
-- Carried over from Feature 10: `location_searched` records "Remote" as typed;
-  empty `match_reason` stored as `''`; four Adzuna markets only; Feature 13 has
-  no model path for Stagehand (do not reintroduce `OPENAI_API_KEY`);
-  `agent_logs` has no writer; `ai_usage` retention unhandled; Feature 06
-  leftovers (save-success copy, resume input reset, tag input clear);
-  `maxDuration = 120` vs the hosting plan unverified.
+- **Adzuna concurrency (503) is a production problem**: two users searching at the
+  same moment means one sees "Job search is unavailable". The likely fix is a
+  retry with jitter in `agent/adzuna.ts`. It's a task of its own, not started.
+- **Searches only read Adzuna's first page**, so repeating a query mostly says
+  "all already in your list". Fetching later pages is a product decision.
+- **`missing_skills` can contradict the profile**: one reply listed React and
+  TypeScript as missing for a candidate who has both. Not benchmarked.
+- Next fetches bare `/find-jobs` twice per navigation. Harmless; cause unknown.
+- The status region is verified in the DOM, not with NVDA/VoiceOver. The 300 ms
+  debounce is unmeasured. `?page=1e20` falls back to page 1.
+- Carried over from Feature 10:
+  - `location_searched` records "Remote" as typed;
+  - an empty `match_reason` is stored as `''`;
+  - only four Adzuna markets are searched;
+  - Feature 13 has no model path for Stagehand (do not reintroduce
+    `OPENAI_API_KEY`);
+  - `agent_logs` has no writer;
+  - `ai_usage` retention is unhandled;
+  - Feature 06 leftovers: save-success copy, resume input reset, tag input clear;
+  - `maxDuration = 120` is unverified against the hosting plan.
 
 ## Testing notes
 
-- **Sign in first** — the Browser pane session expires (it did over 8 days).
-  Signing in is the developer's; never automate it.
-- **The pane runs "hidden"**: `setTimeout` throttles to ~1 s and CSS
-  transitions stall. Space scripted keystrokes with a `MessageChannel` wait and
-  measure one known delay before trusting any timing result.
-- **SQL oracle technique**: compute the expected ordering in SQL, hash it
-  (`encode(sha256(convert_to(string_agg(…), 'UTF8')), 'hex')`), hash the
-  rendered company|title pairs in the page with `crypto.subtle`, compare.
-  `position(lower(needle) in lower(col))` is a wildcard-free contains oracle.
-- **Seed rows** use `source_url = 'seed:…'` so one `delete` cleans them.
-  `CREATE SCHEMA` is denied on InsForge; a temporary backup table in `public`
-  needs `enable row level security` (no policies) and a `drop` afterwards.
-- **To test a timing race, reproduce it live** — the static review graded the
-  navbar race Minor; 3/3 live reproduction made it Important.
-- **Benchmark scoring without spending searches:** call the gateway directly with
-  the SDK's `createClient` (anon key from `.env.local`, `retryCount: 0`) and the
-  matcher's own prompt and tool builders. That bypasses the route, so it uses no
-  Adzuna quota and no `ai_usage` slot. Usage arrives camelCase
-  (`completionTokens`). `get-container-logs insforge.logs` records each
-  `/chat/completion`'s response size and duration.
-- **The scratchpad is wiped between sessions** — a harness written there will be
-  gone. A grep for failure counts over a script that never ran reads as a clean
-  pass; check that the expected number of cases actually ran.
-- Carried over: reset viewport emulation before trusting a click; dispatch
-  synchronous clicks to test in-flight guards; test the rate limit by inserting
-  `ai_usage` rows; never print `.env.local` values; `assets/CV …pdf` is the
-  uncommitted extraction fixture; never click Save Profile while testing.
+- **Sign in first.** Signing in is the developer's job; never automate it.
+- **The pane runs "hidden"**: `setTimeout` throttles to about 1 s. Space scripted
+  keystrokes with a `MessageChannel` wait.
+- **SQL oracle technique**: hash the expected order in SQL
+  (`encode(sha256(convert_to(string_agg(…), 'UTF8')), 'hex')`), and compare it with
+  the rendered rows. `position(lower(needle) in lower(col))` is a wildcard-free
+  contains check.
+- **Rolled-back dry runs**: in a `do $$ … $$` block, run the statement, collect
+  counts, and `raise exception` with them. The error carries the result and rolls
+  everything back, including DDL such as dropping a constraint to plant
+  duplicates.
+- **Hash the rows you claim are untouched**, as `external_id|score|found_at|run_id`,
+  before and after.
+- **Adzuna probes** from a scratchpad script (keys read from `.env.local`, never
+  printed) cost quota but no `ai_usage` slot. Benchmark scoring through the gateway
+  directly with the SDK's `createClient` to avoid spending searches.
+- PostHog ingestion lags 10–30 s. Wait for the search's `job_search_started`
+  before concluding a `job_found` is absent.
+- Node 26 runs `.ts` directly. For the `@/` alias, register a resolve hook
+  (`module.register`). There is no `tsx` in the repo.
+- The scratchpad is wiped between sessions. Check that a harness's expected case
+  count actually ran.
+- Carried over: reset viewport emulation before trusting a click; never print
+  `.env.local` values; `assets/CV …pdf` is the uncommitted extraction fixture;
+  never click Save Profile while testing.

@@ -28,6 +28,12 @@ export type AdzunaJob = {
   description: string;
   /** Adzuna tracking URL. Becomes `jobs.external_apply_url`. */
   redirectUrl: string;
+  /**
+   * Adzuna's own listing id. Becomes `jobs.external_id`, the deduplication key.
+   * Not `redirectUrl`: its query string is a per-request tracking token, so the
+   * same listing arrives with a different URL on every search.
+   */
+  externalId: string;
 };
 
 export type AdzunaSearchResult =
@@ -187,6 +193,14 @@ const displayName = z
 
 const adzunaResultSchema = z
   .object({
+    // Documented as a string; accepted as a number too, since the coercion is
+    // free and a type change upstream would otherwise drop every listing.
+    id: z
+      .union([z.string(), z.number().int().nonnegative()])
+      .transform((value) => String(value).trim())
+      .pipe(z.string().min(1))
+      .optional()
+      .catch(undefined),
     title: z.string().trim().min(1).optional().catch(undefined),
     redirect_url: z.string().trim().min(1).optional().catch(undefined),
     description: z.string().optional().catch(undefined),
@@ -203,22 +217,33 @@ const adzunaResponseSchema = z.object({
 
 type ValidatedResult = z.infer<typeof adzunaResultSchema>;
 
-function normalise(results: ValidatedResult[], country: AdzunaCountry): AdzunaJob[] {
+function normalise(
+  results: ValidatedResult[],
+  country: AdzunaCountry,
+): { jobs: AdzunaJob[]; withoutId: number } {
   const seen = new Set<string>();
   const jobs: AdzunaJob[] = [];
+  let withoutId = 0;
 
   for (const result of results) {
     const title = result.title;
     const redirectUrl = result.redirect_url;
+    const externalId = result.id;
 
     // Nothing to show, or nowhere to apply. Either way the row would be dead.
     if (title === undefined || redirectUrl === undefined) {
       continue;
     }
-    if (seen.has(redirectUrl)) {
+    // A listing with no id could never be recognised again, so saving it would
+    // reopen the duplicate hole — and `jobs` rejects it by CHECK anyway.
+    if (externalId === undefined) {
+      withoutId += 1;
       continue;
     }
-    seen.add(redirectUrl);
+    if (seen.has(externalId)) {
+      continue;
+    }
+    seen.add(externalId);
 
     jobs.push({
       title,
@@ -227,6 +252,7 @@ function normalise(results: ValidatedResult[], country: AdzunaCountry): AdzunaJo
       salary: formatSalary(result.salary_min ?? null, result.salary_max ?? null, country),
       description: result.description?.trim() ?? "",
       redirectUrl,
+      externalId,
     });
 
     if (jobs.length >= RESULTS_PER_PAGE) {
@@ -234,7 +260,7 @@ function normalise(results: ValidatedResult[], country: AdzunaCountry): AdzunaJo
     }
   }
 
-  return jobs;
+  return { jobs, withoutId };
 }
 
 /**
@@ -294,8 +320,16 @@ export async function searchJobs(
       return { success: false, error: "adzuna malformed response" };
     }
 
-    const jobs = normalise(validated.data.results, country);
-    console.log("[agent/adzuna]", country, "returned", jobs.length, "usable listings");
+    const { jobs, withoutId } = normalise(validated.data.results, country);
+    console.log(
+      "[agent/adzuna]",
+      country,
+      "returned",
+      jobs.length,
+      "usable listings,",
+      withoutId,
+      "dropped without an id",
+    );
     return { success: true, jobs };
   } catch (error) {
     // Covers a missing credential (serverEnv throws), a network failure, and the

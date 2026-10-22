@@ -249,6 +249,11 @@ on` is not expressible through PostgREST, and a pre-dedup `count` beside a post-
 per-request tracking link, so the apply URL is **not** a natural key — title + company at
 minimum.
 
+**Superseded (2026-10-22, change `add-job-deduplication`):** the key is Adzuna's own
+listing `id`, stored as `jobs.external_id`, not title + company. A probe showed the id is
+stable across requests and over a month, and the redirect URL's *path* carries it — only
+its query string varies. Title + company would merge distinct openings that share a title.
+
 ---
 
 ## Phase 4 — Job Details Page
