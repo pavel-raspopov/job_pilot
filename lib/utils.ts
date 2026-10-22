@@ -15,6 +15,56 @@
  */
 export const HIGH_MATCH_THRESHOLD = 70;
 
+/**
+ * What a job with no company name shows where the company stands on its own —
+ * the list's company cell and the details page's header.
+ *
+ * One rule for every place a company is named: where it stands alone, say it
+ * was not provided; where it sits inside a sentence ("{role} at {company}",
+ * "Apply Now at {company}", "a dossier on {company}"), leave it out rather than
+ * invent a stand-in name. Before this, one missing company read three
+ * different ways across the list and the details page.
+ */
+export const COMPANY_NOT_PROVIDED = "Company not provided";
+
+/** Lower bound of the warning band. Below it, a score reads as muted. */
+const MID_MATCH_THRESHOLD = 50;
+
+export type ScoreBand = "high" | "mid" | "low";
+
+/**
+ * Which colour band a match score falls in.
+ *
+ * One rule for every place a score is drawn — the list's bar and the details
+ * page's pill — so the two cannot disagree about where green starts. Each
+ * caller maps the band to its own classes, because a bar fill and a pill need
+ * different utilities for the same band.
+ */
+export function scoreBand(score: number): ScoreBand {
+  if (score >= HIGH_MATCH_THRESHOLD) return "high";
+  if (score >= MID_MATCH_THRESHOLD) return "mid";
+  return "low";
+}
+
+/**
+ * The address to link to, or `null` when it is not safe to put in an `href`.
+ *
+ * Only `http:` and `https:` pass. React renders a `javascript:` href as given
+ * (it only warns in development), and these addresses come from a third-party
+ * API, so this check is the guard rather than a nicety. `new URL` also strips
+ * the leading whitespace and embedded tabs that would otherwise disguise a
+ * scheme, so the protocol is read from what a browser would actually run.
+ */
+export function safeExternalUrl(value: string | null): string | null {
+  if (value === null || value.trim() === "") return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 

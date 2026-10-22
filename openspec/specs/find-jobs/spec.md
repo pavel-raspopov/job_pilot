@@ -26,7 +26,7 @@ navigation item while the user is on it.
 - **WHEN** a visitor who is not signed in requests `/find-jobs`
 - **THEN** the system redirects them to the login page and does not render the job list
 
-### Requirement: Job list presentation
+### Requirement: Job list presentation and row navigation
 
 The system SHALL present the signed-in user's saved jobs in a tabular list with a column
 for each of: company, role, match score, salary estimate, source, and date found. Column
@@ -40,9 +40,11 @@ job was found expressed in relative terms. A job saved without a match score SHA
 presented as unscored rather than as scoring zero, and a job saved without a salary
 estimate SHALL be presented as having none.
 
-A row SHALL show a hover state indicating it is the unit of interest. In this change a row
-SHALL NOT be a link and SHALL NOT navigate anywhere — the job details page does not exist
-yet, and the system SHALL NOT present a control that leads to a missing page.
+A row SHALL show a hover state indicating it is the unit of interest, and SHALL open that
+job's details page when activated anywhere on the row. Each row SHALL be reachable and
+operable from the keyboard as a single link whose accessible name identifies the role and
+the company. The link SHALL carry the list's current view (its search text, match band,
+sort and page), so returning from the details page restores the view the user left.
 
 On a narrow viewport the list SHALL scroll horizontally within its own container and SHALL
 NOT cause the page body to scroll horizontally.
@@ -81,10 +83,23 @@ from the page.
 - **THEN** a visible "Jobs by Adzuna" credit is shown
 - **AND** it remains visible when a filter narrows the list to nothing
 
-#### Scenario: Rows do not navigate
+#### Scenario: A row opens its job
 
-- **WHEN** the user clicks a job row
-- **THEN** the page does not navigate and no job details view is opened
+- **WHEN** the user clicks anywhere on a job row
+- **THEN** that job's details page opens
+
+#### Scenario: A row is one keyboard link
+
+- **WHEN** a keyboard user tabs through the job list
+- **THEN** each row is reached once, as a link naming the role and the company
+- **AND** activating it opens that job's details page
+
+#### Scenario: The row link carries the list view
+
+- **WHEN** the user opens a job from page 2 of a list filtered to High Match with the
+  search text "react"
+- **THEN** the details page's Back to Jobs link returns to page 2 of the High Match list
+  filtered by "react"
 
 #### Scenario: Narrow viewport keeps the page body stable
 

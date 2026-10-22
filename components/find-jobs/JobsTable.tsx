@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition, type FocusEvent } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Building2, CircleAlert, Search, SearchX } from "lucide-react";
 import { JobFilters } from "@/components/find-jobs/JobFilters";
 import { JobsPagination } from "@/components/find-jobs/JobsPagination";
 import { jobListHref, normalizeQuery } from "@/lib/job-list-params";
-import { formatRelativeDate, HIGH_MATCH_THRESHOLD } from "@/lib/utils";
+import {
+  COMPANY_NOT_PROVIDED,
+  formatRelativeDate,
+  scoreBand,
+  type ScoreBand,
+} from "@/lib/utils";
 import type { Job, JobListParams, JobSort, MatchFilter } from "@/types";
 
 /**
@@ -19,9 +25,6 @@ const QUERY_DEBOUNCE_MS = 300;
 function sameView(a: JobListParams, b: JobListParams): boolean {
   return a.q === b.q && a.match === b.match && a.sort === b.sort && a.page === b.page;
 }
-
-/** Lower bound of the warning colour band. Below it, a score reads as muted. */
-const MID_MATCH_THRESHOLD = 50;
 
 const TH_CLASS =
   "px-6 py-4 text-left text-xs font-medium uppercase tracking-wide text-text-secondary";
@@ -36,18 +39,36 @@ const TD_CLASS = `${TD_BASE_CLASS} text-text-primary`;
 const TD_MUTED_CLASS = `${TD_BASE_CLASS} text-text-secondary`;
 
 /**
+ * The row's one link, on the title. Its `::after` box is stretched over the
+ * whole row — the `<tr>` is `relative` — so a click on any cell opens the job,
+ * while the row stays a single tab stop with one accessible name. The focus
+ * ring is drawn on that same stretched box, so a keyboard user sees the whole
+ * row focused, not just the title text.
+ *
+ * A link rather than a click handler on `<tr>`: only a link gives keyboard
+ * access, middle-click and "open in new tab" for free.
+ */
+const ROW_LINK_CLASS =
+  "after:absolute after:inset-0 after:content-[''] focus:outline-none focus-visible:after:ring-1 focus-visible:after:ring-inset focus-visible:after:ring-accent";
+
+/**
  * Fill colour by score band.
  *
- * The success boundary is `HIGH_MATCH_THRESHOLD`, the same constant the High
- * Match filter uses, so a green bar is exactly a row that filter keeps. The
- * binding design asset paints some bars blue; `context/ui-tokens.md` and
+ * The bands come from `scoreBand`, whose success boundary is
+ * `HIGH_MATCH_THRESHOLD` — the constant the High Match filter uses — so a green
+ * bar is exactly a row that filter keeps, and the details page's pill agrees.
+ * The binding design asset paints some bars blue; `context/ui-tokens.md` and
  * `context/ui-rules.md` both say green from 70, and that conflict was resolved
  * in favour of the tokens on 2026-07-31. No blue appears here.
  */
+const BAR_FILL_CLASS: Record<ScoreBand, string> = {
+  high: "bg-success",
+  mid: "bg-warning",
+  low: "bg-text-muted",
+};
+
 function scoreBandClass(score: number): string {
-  if (score >= HIGH_MATCH_THRESHOLD) return "bg-success";
-  if (score >= MID_MATCH_THRESHOLD) return "bg-warning";
-  return "bg-text-muted";
+  return BAR_FILL_CLASS[scoreBand(score)];
 }
 
 function MatchScoreCell({ job }: { job: Job }) {
@@ -201,8 +222,10 @@ type Props = {
  * Back useless — while the band, the sort, the page and Clear use `push`,
  * because each is one deliberate act that Back should undo.
  *
- * Rows show a hover state but are deliberately not links: `/find-jobs/[id]` is
- * Feature 12, and a control that leads to a missing page is worse than none.
+ * Each row is one link to its job, carried by the title cell and stretched over
+ * the row (see `ROW_LINK_CLASS`). Its href carries `params` — the view the rows
+ * on screen were rendered for, not the `intended` one still in flight — so Back
+ * to Jobs on the details page returns to exactly what the user was looking at.
  */
 export function JobsTable({
   jobs,
@@ -442,7 +465,7 @@ export function JobsTable({
                 jobs.map((job) => (
                   <tr
                     key={job.id}
-                    className="border-b border-border transition-colors last:border-b-0 hover:bg-surface-secondary"
+                    className="relative border-b border-border transition-colors last:border-b-0 hover:bg-surface-secondary"
                   >
                     <th scope="row" className={`${TD_CLASS} font-semibold`}>
                       <span className="flex items-center gap-3">
@@ -452,10 +475,22 @@ export function JobsTable({
                         >
                           <Building2 className="h-4 w-4 text-text-muted" />
                         </span>
-                        {job.company}
+                        {job.company ?? COMPANY_NOT_PROVIDED}
                       </span>
                     </th>
-                    <td className={TD_CLASS}>{job.title}</td>
+                    <td className={TD_CLASS}>
+                      <Link
+                        href={jobListHref(`/find-jobs/${job.id}`, params)}
+                        className={ROW_LINK_CLASS}
+                      >
+                        {job.title ?? "Untitled role"}
+                        {/* Left out, not replaced, when there is no company —
+                            see `COMPANY_NOT_PROVIDED`. */}
+                        {job.company !== null ? (
+                          <span className="sr-only"> at {job.company}</span>
+                        ) : null}
+                      </Link>
+                    </td>
                     <td className={TD_CLASS}>
                       <MatchScoreCell job={job} />
                     </td>

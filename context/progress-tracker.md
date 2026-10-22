@@ -6,9 +6,9 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ## Current Status
 
-**Phase:** Phase 4 — Job Details Page (next)
-**Last completed:** Skill lists held to the profile (change `filter-match-skills`, after 11)
-**Next:** 12 Job Details Page — Full UI
+**Phase:** Phase 4 — Job Details Page
+**Last completed:** 12 Job Details Page — Full UI (change `add-job-details-page`)
+**Next:** 13 Company Research Agent
 
 ---
 
@@ -36,7 +36,7 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ### Phase 4 — Job Details Page
 
-- [ ] 12 Job Details Page — Full UI
+- [x] 12 Job Details Page — Full UI
 - [ ] 13 Company Research Agent
 
 ### Phase 5 — Dashboard
@@ -49,6 +49,64 @@ Update this file after every completed feature. Any AI agent reading this should
 ---
 
 ## Decisions Made During Build
+
+- **Feature 12 Job Details Page (2026-10-22).** `/find-jobs/[id]` shows one saved job.
+  It is a server component with five server-only components in
+  `components/job-details/`, and the list's rows now link to it. There is no
+  migration, no dependency and no PostHog event. OpenSpec change
+  `add-job-details-page`.
+
+  - **Sources reconciled in `/architect`:**
+    - The design and the build plan beat `project-overview.md`'s structured sections.
+      Responsibilities and the other structured columns are always null for Adzuna,
+      and they belong to the out-of-scope URL import.
+    - Gap skills are purple, per the design and `ui-tokens.md`, not the plan's red.
+    - The research card is an empty state with no button. Feature 13 adds the button.
+    - Back to Jobs restores the list's `q` / `match` / `sort` / `page`, carried in the
+      details URL.
+    - The score, reason and skill lists render as one captioned snapshot and are never
+      re-filtered against today's profile.
+  - **Not found is one indistinguishable 404** for a malformed id, an unknown id and
+    another user's job. The id is validated with `z.uuid()` before the query. A
+    malformed uuid would otherwise come back from PostgREST as an *error*, and the page
+    would tell a user with a typo to "try again".
+  - **The `find-jobs` spec requirement was replaced, not modified.** OpenSpec cannot
+    drop a single scenario ("Rows do not navigate") from a MODIFIED block, so "Job list
+    presentation" was removed with a Reason and Migration. It was re-added as "Job list
+    presentation and row navigation", with every other scenario carried over verbatim.
+  - **External links pass `safeExternalUrl`** (`http`/`https` only), because React
+    renders a `javascript:` href as given. A staged `javascript:alert(1)` never reached
+    the HTML.
+  - **The score pill's mid band is neutral with an orange dot.** `text-warning` on
+    white is about 2.4:1, below AA. `scoreBand()` in `lib/utils.ts` now feeds both the
+    bar and the pill.
+  - **Verified:**
+    - every 404/200 status, plus a tampered query string, which stays on `/find-jobs`;
+    - real clicks on the company and date cells, and Tab/Enter, one stop per row,
+      with a 900 px focus ring equal to the row width;
+    - the Back round trip to page 2 of `q=e` oldest-first;
+    - five edge states staged on one row (unscored, empty reason and lists, missing
+      facts with a 203-character location, a line break, a `javascript:` URL and an
+      empty one), then restored from a backup table with an identical row hash;
+    - at 375 px, no horizontal body scroll;
+    - lint, `tsc`, build and validate.
+  - **Review: 2 Minors, both fixed and re-verified live.**
+    - A title with no spaces ran 805 px of text out of a 597 px header box. The
+      title and company now `break-words`, and the same probe at 406 px wraps
+      cleanly.
+    - A null company read four ways: "an unnamed company", "Company not provided",
+      "this company", and a blank list cell. One rule now applies (registry
+      **Company fallback**): `COMPANY_NOT_PROVIDED` where it stands alone, omitted
+      inside sentences. Verified on a staged row, which was then restored with an
+      identical hash.
+  - **Not exercised live:**
+    - **Another user's job.** The dev DB has one user, and InsForge's SQL tool refuses
+      `set_config`, so `auth.uid()` could not be impersonated. Ownership rests on the
+      query's `id` and `user_id` filters plus the `jobs_select_own` RLS policy
+      (`user_id = auth.uid()`, RLS enabled).
+    - **The load-failed card.** A read error cannot be forced without changing code.
+      A temporary `REVOKE SELECT` on `jobs` was tried and denied by the permission
+      system, and the grants were checked unchanged afterwards.
 
 - **Skill lists held to the profile (2026-10-22).** After the model replies,
   `scoreJobs` keeps a matched skill only if it is in `profiles.skills` (in the
